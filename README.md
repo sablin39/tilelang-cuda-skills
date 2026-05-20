@@ -13,6 +13,7 @@ TileLang skills created by Claude Opus 4.6 (probably) in Claude Code with the `s
 | [writing-tilelang-kernels](skills/tilelang/writing-tilelang-kernels/SKILL.md) | Write TileLang GPU kernels from scratch or by adapting patterns | Kernel anatomy, templates (GEMM, elementwise, reduction), memory scopes, T.copy/T.gemm, dynamic shapes |
 | [debugging-tilelang-programs](skills/tilelang/debugging-tilelang-programs/SKILL.md) | Diagnose and fix errors in TileLang programs | Failure taxonomy, T.print, AutoDD, compute-sanitizer, numerical drift, race detection |
 | [profiling-tilelang-programs](skills/tilelang/profiling-tilelang-programs/SKILL.md) | Benchmark and profile TileLang kernels | do_bench backends, TFLOPS/bandwidth, ncu bottleneck diagnosis (pipe utilization, warp stalls), roofline |
+| [torch-profiling-tilelang-programs](skills/tilelang/torch-profiling-tilelang-programs/SKILL.md) | Lightweight torch.profiler alternative to ncu/nsys for TileLang | torch.profiler setup, key_averages, chrome trace, roofline classification (IO / CUDA-core / tensor-core), launch overhead, memory profiling |
 | [optimizing-tilelang-programs](skills/tilelang/optimizing-tilelang-programs/SKILL.md) | Optimize TileLang kernels for performance | Tile sizes, pipeline stages, threads, AutoTuner, epilogue fusion, swizzle, ncu-guided tuning |
 | [testing-fwd-bwd-kernels](skills/tilelang/testing-fwd-bwd-kernels/SKILL.md) | Test kernels with forward and backward passes | torch.autograd.Function, compare_backward (not gradcheck), mixed-precision, atomicAdd, attention bwd |
 
@@ -22,13 +23,13 @@ The skills form a natural progression:
 
 ```
 writing → debugging → profiling → optimizing
-                                      ↓
-                              testing-fwd-bwd (for differentiable ops)
+                          ↓           ↓
+            torch-profiling   testing-fwd-bwd (for differentiable ops)
 ```
 
 1. **Write** a kernel using templates from the writing skill
 2. **Debug** if it fails to compile or produces wrong results
-3. **Profile** to measure baseline performance
+3. **Profile** to measure baseline performance — use `profiling-tilelang-programs` for the ncu/do_bench workflow, or `torch-profiling-tilelang-programs` when ncu/nsys aren't available and you want a quick `torch.profiler`-based pass
 4. **Optimize** to improve performance
 5. **Test fwd+bwd** if the kernel needs gradients
 
