@@ -67,8 +67,7 @@ Nsight Compute `extras/python` directory containing `ncu_report.py`:
 # Verified location on the reviewed machine; discover it on other systems.
 NCU_PYTHON_DIR=/opt/nvidia/nsight-compute/2025.3.1/extras/python
 env PYTHONPATH="$NCU_PYTHON_DIR${PYTHONPATH:+:$PYTHONPATH}" \
-  conda run --no-capture-output -n qla python \
-  "$NCU_REPORT_SKILL_ROOT/helpers/analyze_reports.py" \
+  python "$NCU_REPORT_SKILL_ROOT/helpers/analyze_reports.py" \
   --run-dir "$PROFILE_RUN_DIR" --report "$NCU_REPORT_PATH" --tag baseline
 ```
 

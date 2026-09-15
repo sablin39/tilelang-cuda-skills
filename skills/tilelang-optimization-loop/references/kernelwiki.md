@@ -17,21 +17,18 @@ KERNELWIKI_ROOT="$PWD/external/KernelWiki"
 ```
 
 When invoking from elsewhere, set `KERNELWIKI_ROOT` to that absolute checkout
-path. The scripts resolve their corpus from their own location. Use the active
-interpreter; these examples use `qla`:
+path. The scripts resolve their corpus from their own location. Run them with
+the task's active `python`, whatever environment manager provides it (venv,
+uv, conda, ...):
 
 ```bash
 # Find a mechanism or a TileLang implementation change.
-conda run --no-capture-output -n qla python \
-  "$KERNELWIKI_ROOT/scripts/query.py" pipeline --type technique --limit 3 --compact
-conda run --no-capture-output -n qla python \
-  "$KERNELWIKI_ROOT/scripts/query.py" --repo tilelang --limit 3 --compact
+python "$KERNELWIKI_ROOT/scripts/query.py" pipeline --type technique --limit 3 --compact
+python "$KERNELWIKI_ROOT/scripts/query.py" --repo tilelang --limit 3 --compact
 # Fetch a selected page and the excerpts of its cited sources.
-conda run --no-capture-output -n qla python \
-  "$KERNELWIKI_ROOT/scripts/get_page.py" technique-pipeline-stages --follow-sources
+python "$KERNELWIKI_ROOT/scripts/get_page.py" technique-pipeline-stages --follow-sources
 # Search an unfamiliar symbol found in generated code.
-conda run --no-capture-output -n qla python \
-  "$KERNELWIKI_ROOT/scripts/grep_wiki.py" mbarrier --only wiki --limit 3 --files-only
+python "$KERNELWIKI_ROOT/scripts/grep_wiki.py" mbarrier --only wiki --limit 3 --files-only
 ```
 
 Choose query words from the actual operation, emitted symbol, or observed

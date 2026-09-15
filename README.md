@@ -39,8 +39,7 @@ After cloning this suite, run from its root:
 
 ```bash
 git submodule update --init -- external/KernelWiki
-conda run --no-capture-output -n qla python \
-  external/KernelWiki/scripts/query.py pipeline --type technique --limit 3 --compact
+python external/KernelWiki/scripts/query.py pipeline --type technique --limit 3 --compact
 ```
 
 Git records the Wiki revision as a submodule pin. Initialize that revision for
@@ -82,7 +81,7 @@ Assume PyTorch and TileLang are installed. Install the extra visualization
 dependency into the selected environment:
 
 ```bash
-conda run -n qla python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 [requirements.txt](requirements.txt) includes Matplotlib for layout images and
