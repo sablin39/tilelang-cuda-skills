@@ -45,6 +45,19 @@ existing artifacts when applicable. If compilation is unavailable or fails,
 record the missing evidence and use the validated eager path as described in
 that reference. Keep the mathematical oracle independent of the candidate.
 
+When the task changes a multi-operation fusion boundary, logical sharding,
+topology, or high-level memory placement, or already uses TileFoundry, apply the
+[TileFoundry design workflow](../designing-with-tilefoundry/SKILL.md). Its
+authored HIR, evaluator, static cost report, and viewer can make the intended
+design reviewable before kernel implementation. When several design directions
+are on the table, author each as an HIR variant and diff the `analyze` reports
+to rank them before any kernel work. Record the target in SM capability terms
+(sm_90, sm_100, ...) so the evidence states which architecture features it
+relies on. Record these as modeled design
+evidence; the emitted TileLang lowering and measured GPU result remain separate
+acceptance gates. Do not introduce TileFoundry solely to tune an isolated,
+already-defined `PrimFunc`.
+
 ## 2. Write the draft, then an executable plan
 
 Before editing a candidate, write a compact `docs/draft.md`: the selected region,
@@ -103,6 +116,11 @@ including relevant tails, repeated calls, and state/gradient cases. Use
 [forward/backward testing](../tilelang/testing-fwd-bwd-kernels/SKILL.md) when needed.
 Record compile, runtime, and numerical failures separately. Failed or untested
 candidates have no eligible performance result.
+
+When a TileFoundry runtime twin exists for the candidate, also run
+`tilefoundry check` against the authored evaluator and keep its JSON report
+with the candidate evidence. It is a second, independent agreement gate; it
+never replaces the fixed correctness command.
 
 For passing candidates, use the fixed [profiling workflow](../tilelang/profiling-tilelang-programs/SKILL.md).
 Warm all compared paths and keep shapes, timing backend, allocation/reset/cache

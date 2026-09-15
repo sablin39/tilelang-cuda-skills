@@ -1,16 +1,18 @@
-# Working with KernelWiki and ncu-report-skill
+# Working with TileFoundry, KernelWiki, and ncu-report-skill
 
+TileFoundry and NCU report tooling are optional external integrations.
 KernelWiki is included as a supplementary submodule at `external/KernelWiki`.
-NCU report tooling remains an optional external integration. These supply
-research and report-analysis capabilities; the task workspace
-still owns the executable correctness and benchmark harness. Keep this suite's
-contract, TileLang programming/lowering guidance, and candidate selection loop.
+Together they supply authored-model analysis, research, and report-analysis
+capabilities; the task workspace still owns the executable correctness and
+benchmark harness. Keep this suite's contract, TileLang programming/lowering
+guidance, and candidate selection loop.
 
 ## Responsibilities
 
 | Component | Responsibility |
 | --- | --- |
 | `tilelang-optimization-loop` | Task contract, PyTorch baseline analysis, stage selection, experiment records, and acceptance criteria |
+| TileFoundry | Authored model/operator HIR, topology and placement, static cost analysis, evaluator/runtime-twin checking, and HIR visualization |
 | TileLang specialists | Implementation, compiler inspection, correctness/autograd, timing, and optimization |
 | Minimal CUDA workflow | Native compilation, launch/stream contracts, Compute Sanitizer, Nsight Systems, and NVTX |
 | KernelWiki | On-demand lookup of implementation patterns and upstream evidence, especially Hopper/Blackwell |
@@ -21,6 +23,14 @@ KernelWiki can supply the optional architecture/implementation reference layer.
 It does not replace generic CUDA host/debugging workflows or dedicated TileLang
 guidance. Its scripts query and validate a knowledge corpus; they do not run a
 candidate correctness/performance evaluator.
+
+TileFoundry supplies an earlier design layer when a task spans fused operations,
+logical sharding, topology, or storage placement. Follow the
+[TileFoundry design workflow](../../designing-with-tilefoundry/SKILL.md), and
+keep its static nanosecond estimates distinct from measured kernel latency. It
+is installed separately rather than included as a submodule or default Python
+dependency because its interpreter and package constraints may conflict with
+an established TileLang environment.
 
 The related [Kernel Design Agents workflow](https://github.com/mit-han-lab/kernel-design-agents/blob/4806866492d5c7cad05e07918790bd1e94e976a1/docs/agent-flow.md)
 also delegates validation/evaluation commands to the task workspace. Its
@@ -151,6 +161,16 @@ Inspected on 2026-09-11:
   workflow documents plus pinned companion skills; no shared executable
   correctness/benchmark runner in the inspected first-party tree. Its pins
   differ from the standalone repositories reviewed above.
+
+TileFoundry was inspected separately on 2026-09-15 at
+[tile-ai/TileFoundry `2af2364`](https://github.com/tile-ai/TileFoundry/tree/2af2364d53f262946b7f07643583262f3abd2d76).
+In an isolated Python 3.12 environment, its CLI catalog/spec/tutorial, H200
+RMSNorm compute/memory/roofline/performance analysis, CPU evaluator/runtime-twin
+check, DOT builder, and local interactive viewer endpoints were exercised. The
+viewer fetched and verified its pinned Graphviz-WASM and D3 assets. After eight
+NVIDIA L20Z devices became visible, the targeted 34-test subset passed and a
+synchronized PyTorch FP16 CUDA matrix multiplication completed on device 0. No
+TileFoundry-generated CUDA kernel was compiled or timed in this review.
 
 Preserve upstream notices and artifact provenance when incorporating files.
 KernelWiki is included; the NCU dependency and task-harness layout above remain

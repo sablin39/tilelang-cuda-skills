@@ -16,6 +16,7 @@
       --accent: #2457d6;
       --accent-soft: #e8efff;
       --concept: #7c3aed;
+      --model: #0f6b8f;
       --compiler: #c66a00;
       --runtime: #087a55;
       --shadow: 0 10px 30px rgb(15 23 42 / 8%);
@@ -32,6 +33,7 @@
       --accent: #8fb1ff;
       --accent-soft: #22365f;
       --concept: #c4a5ff;
+      --model: #67c1df;
       --compiler: #ffbd66;
       --runtime: #70d9b2;
       --shadow: 0 10px 30px rgb(0 0 0 / 24%);
@@ -134,10 +136,12 @@
       background: var(--surface);
     }
     .evidence-card[data-evidence="conceptual"] { border-left-color: var(--concept); }
+    .evidence-card[data-evidence="authored-model"] { border-left-color: var(--model); }
     .evidence-card[data-evidence="compiler"] { border-left-color: var(--compiler); }
     .evidence-card[data-evidence="runtime"] { border-left-color: var(--runtime); }
     .evidence-label { font-size: 0.78rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
     [data-evidence="conceptual"] .evidence-label { color: var(--concept); }
+    [data-evidence="authored-model"] .evidence-label { color: var(--model); }
     [data-evidence="compiler"] .evidence-label { color: var(--compiler); }
     [data-evidence="runtime"] .evidence-label { color: var(--runtime); }
 
@@ -234,6 +238,7 @@
         <div class="controls" role="group" aria-label="Filter evidence">
           <button type="button" data-filter="all" aria-pressed="true">All</button>
           <button type="button" data-filter="conceptual" aria-pressed="false">Conceptual</button>
+          <button type="button" data-filter="authored-model" aria-pressed="false">Authored-model</button>
           <button type="button" data-filter="compiler" aria-pressed="false">Compiler-derived</button>
           <button type="button" data-filter="runtime" aria-pressed="false">Runtime-measured</button>
         </div>
@@ -242,6 +247,13 @@
           <div class="evidence-label">Conceptual</div>
           <h3>{{CONCEPTUAL_CLAIM}}</h3>
           <p>{{CONCEPTUAL_EXPLANATION_AND_LIMIT}}</p>
+        </article>
+
+        <article class="evidence-card" data-evidence="authored-model">
+          <div class="evidence-label">Authored-model</div>
+          <h3>{{AUTHORED_MODEL_CLAIM}}</h3>
+          <p>{{MODEL_SELECTOR_TARGET_DIMS_FINDING_AND_LIMIT}}</p>
+          <p><a href="{{AUTHORED_MODEL_ARTIFACT_PATH}}">Open authored-model artifact</a></p>
         </article>
 
         <article class="evidence-card" data-evidence="compiler">

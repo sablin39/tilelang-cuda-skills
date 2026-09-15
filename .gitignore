@@ -4,6 +4,7 @@
 /.agents/
 /.codex/
 /.cursor/
+/evals
 
 # Task artifacts created when exercising the skill workflows from this repo.
 /docs/
@@ -22,3 +23,4 @@ htmlcov/
 
 # Host filesystem metadata.
 .DS_Store
+.env

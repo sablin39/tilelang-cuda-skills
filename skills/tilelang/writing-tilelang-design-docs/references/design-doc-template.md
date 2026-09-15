@@ -61,8 +61,8 @@ completion is central to the design.>
 ### Pipeline and synchronization
 
 <Explain stage count, copy/compute overlap, barriers or waits, buffer reuse, and
-producer/consumer ownership. State whether this is proposed, compiler-derived,
-or runtime-observed.>
+producer/consumer ownership. State whether this is conceptual, authored-model,
+compiler-derived, or runtime-observed.>
 
 ## Interface and integration
 
@@ -79,6 +79,7 @@ the stated constraints. Use a comparison table when several options matter.>
 | Claim | Status | Evidence | Artifact |
 | --- | --- | --- | --- |
 | Numerical agreement | <planned/passed/failed> | <cases and tolerance> | <link> |
+| Authored model | <planned/checked/failed> | <HIR selector, target, dimensions, and static finding> | <link> |
 | Intended lowering | <planned/observed/not observed> | <target and finding> | <link> |
 | Resource use | <estimated/measured/unavailable> | <shared bytes, registers, spills> | <link> |
 | Performance | <estimated/measured/unavailable> | <scope, cases, units, variation> | <link> |
@@ -101,7 +102,8 @@ the validation approach without implying that commands have already passed.>
 
 - The overview can be understood without opening source code.
 - Proposed and observed behavior are visibly different.
-- Every diagram has a caption, evidence level, specialization, and takeaway.
+- Every diagram has a caption, evidence level, specialization or model selector,
+  and takeaway.
 - Tensor names, shapes, dtypes, scopes, and ownership match the implementation.
 - Numbers include units and identify whether they are estimates or measurements.
 - Compiler event order and runtime time are not combined.

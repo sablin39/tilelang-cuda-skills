@@ -41,9 +41,11 @@ memory movement, compute, synchronization, and output.
 
 Keep paragraphs connected and use tables for contracts or comparisons. Under
 every figure, add a one-sentence takeaway. Label each visual as
-**conceptual**, **compiler-derived**, or **runtime-measured**, and name the
-specialization it represents. Prefer two useful visuals over a gallery of raw
-tool output.
+**conceptual**, **authored-model**, **compiler-derived**, or
+**runtime-measured**, and name the specialization it represents. An
+authored-model visual is machine-readable design evidence such as TileFoundry
+HIR or static analysis; it is still distinct from emitted code and observed
+runtime. Prefer two useful visuals over a gallery of raw tool output.
 
 Start from [design-doc-template.md](references/design-doc-template.md), adapting
 its sections to the design. Omit empty sections.
@@ -55,9 +57,9 @@ review in source control, supports Mermaid in compatible renderers, and keeps
 the technical narrative searchable.
 
 Use interactive HTML when interaction answers a review question: comparing
-proposed and observed behavior, filtering conceptual/compiler/runtime evidence,
-expanding detailed artifacts, or navigating several large figures. Do not add
-interaction only as decoration. Start from
+proposed and observed behavior, filtering conceptual/authored-model/compiler/
+runtime evidence, expanding detailed artifacts, or navigating several large
+figures. Do not add interaction only as decoration. Start from
 [interactive-design-doc-template.html](references/interactive-design-doc-template.html)
 and replace its placeholders with the design's content and relative artifact
 paths.
@@ -73,6 +75,7 @@ is unavailable.
 | Review question | Human-friendly visual | Supporting evidence |
 | --- | --- | --- |
 | What does the kernel compute? | Operation/dataflow diagram | Reference and implementation source |
+| What model region, topology, and placement were authored? | TileFoundry HIR graph or focused viewer capture | Authored module, selector, target, and dimension bindings |
 | How is work divided? | Grid → CTA → warp-group/warp → lane diagram | Specialized TIR and launch code |
 | Where does each tensor live and move? | Global/shared/fragment memory-flow diagram | Specialized TIR and generated source |
 | How does pipelining work? | Copy/compute/wait stage diagram | Pipeline annotations and lowering |
@@ -85,6 +88,16 @@ is unavailable.
 A static analyzer result is an estimate. A compiler event index is an ordering
 axis. A GPU trace is measured time. Keep these evidence types in separate
 figures and describe their limits in the caption.
+
+When a design starts from TileFoundry, use the
+[TileFoundry workflow](../../designing-with-tilefoundry/SKILL.md) to capture the
+authored HIR graph and static analysis. Use the HIR viewer interactively while
+exploring large function trees, placement, and dependencies. For durable
+review, include a focused static export or screenshot plus the DOT source,
+analysis report, and exact viewer command. The viewer runs through a local
+server and cached browser assets, so do not present it as a self-contained HTML
+artifact. Pair it with a specialized TileLang TIR or generated-code figure to
+show whether the planned mapping actually materialized.
 
 ## Draw the implementation overview
 

@@ -26,6 +26,13 @@ source/configuration, lowering artifacts, hardware explanations, and measured
 results. Query the upstream corpus as needed and keep experiment evidence in
 the task workspace.
 
+For model- or operator-level design, the optional
+[TileFoundry workflow](skills/designing-with-tilefoundry/SKILL.md) adds authored
+HIR, topology and placement, static cost analysis, evaluator/runtime-twin
+checking, and an interactive HIR viewer. Use it before or alongside TileLang
+when decisions span fusion, sharding, or memory-placement boundaries. It is a
+separate installation rather than a default suite dependency.
+
 ## Initialize KernelWiki
 
 After cloning this suite, run from its root:
@@ -48,6 +55,7 @@ see [external tool integration](skills/tilelang-optimization-loop/references/ext
 
 | Skill | Use it for |
 | --- | --- |
+| [designing-with-tilefoundry](skills/designing-with-tilefoundry/SKILL.md) | Authored model/operator HIR, topology and placement, static analysis, runtime-twin checking, and HIR visualization |
 | [writing-tilelang-kernels](skills/tilelang/writing-tilelang-kernels/SKILL.md) | PrimFunc factories, eager JIT, tensor contracts, and kernel templates |
 | [writing-tilelang-design-docs](skills/tilelang/writing-tilelang-design-docs/SKILL.md) | Human-facing implementation proposals and reports with data-flow, pipeline, lifetime, compiler, and runtime visuals |
 | [debugging-tilelang-programs](skills/tilelang/debugging-tilelang-programs/SKILL.md) | Runtime failures, host checks, buffer lifetime/storage analysis, lower traces, and TVM diagnostics |
@@ -82,6 +90,9 @@ HTML memory timelines. Text layout inspection and JSON memory export work
 without it. The tensor-lifetime SVG renderer uses only the Python standard
 library. CUDA toolkit tools, Compute Sanitizer, Nsight Compute, and Nsight
 Systems are external installations, outside these pip requirements.
+TileFoundry is also optional and intentionally omitted: follow its skill's
+compatibility check and dependency gate before installing it into a separate or
+existing environment.
 
 ## CUDA skill
 
