@@ -1,0 +1,5 @@
+# Extra Python tools used by the skills; torch and tilelang are installed separately.
+# TileLang layout images and torch.profiler HTML memory timelines.
+matplotlib
+# IKET profiling needs this
+nvidia-cutlass-dsl

@@ -6,7 +6,7 @@ Outputs:   ./trace.json (open in chrome://tracing or https://ui.perfetto.dev/)
            A summary table is printed to stdout.
 
 For long-running models, replace the simple `with profile(...)` block with the
-scheduled variant near the bottom of this file.
+scheduled variant in SKILL.md.
 """
 
 import torch
@@ -42,17 +42,20 @@ def main():
     a = torch.randn(M, K, device="cuda", dtype=torch.float16)
     b = torch.randn(K, N, device="cuda", dtype=torch.float16)
 
-    # --- Warm up so JIT compile and autotune costs do not contaminate the trace ---
-    for _ in range(5):
+    torch.testing.assert_close(kernel(a, b), a @ b, rtol=1e-2, atol=1e-2)
+
+    # --- Warm both paths before collecting steady-state work ---
+    for _ in range(10):
         _ = kernel(a, b)
+        _ = a @ b
     torch.cuda.synchronize()
 
     # --- Profile ---
     with profile(
         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,        # input shapes per op
+        record_shapes=False,       # enable only for shape grouping
         with_stack=False,          # set True if you also want Python stacks (more overhead)
-        profile_memory=False,      # set True for allocator timeline
+        profile_memory=False,      # timeline also needs record_shapes and with_stack
     ) as prof:
         for _ in range(20):
             with record_function("tilelang_matmul"):
@@ -63,20 +66,23 @@ def main():
         torch.cuda.synchronize()
 
     # --- Aggregated table (sort by GPU self-time) ---
-    print(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=20))
+    print(prof.key_averages().table(sort_by="self_device_time_total", row_limit=20))
 
     # --- Save chrome trace for visual inspection ---
     prof.export_chrome_trace("trace.json")
     print("Wrote trace.json (open in chrome://tracing or https://ui.perfetto.dev/)")
 
-    # --- Roofline math: turn the measured kernel time into achieved TFLOPS ---
-    # record_function ranges appear twice in key_averages: once as the CPU range
-    # (self_device_time_total == 0) and once as the GPU range that owns the
-    # kernel time (self_device_time_total > 0).  Pick the GPU-side one.
+    # --- Derived throughput from attributed GPU time (diagnostic, not a benchmark) ---
+    # Prefer a GPU annotation when available; otherwise use attributed CPU
+    # range totals. Never add the annotation and its nested kernel together.
     def lookup_gpu_us_per_call(name):
-        for evt in prof.key_averages():
-            if evt.key == name and evt.self_device_time_total > 0 and evt.count:
-                return evt.self_device_time_total / evt.count  # microseconds
+        events = [evt for evt in prof.key_averages() if evt.key == name and evt.count]
+        for evt in events:
+            if evt.device_type == torch.autograd.DeviceType.CUDA and evt.self_device_time_total > 0:
+                return evt.self_device_time_total / evt.count
+        for evt in events:
+            if evt.device_time_total > 0:
+                return evt.device_time_total / evt.count
         return None
 
     for label, flops in (("tilelang_matmul", 2 * M * N * K),
@@ -85,15 +91,9 @@ def main():
         if us:
             tflops = flops / (us * 1e-6) / 1e12
             print(f"{label}: {us/1e3:.3f} ms/call, {tflops:.1f} TFLOPS")
+        else:
+            print(f"{label}: no attributed GPU timing; inspect CUDA profiler support and trace")
 
-
-# ---------------------------------------------------------------------------
-# Scheduled variant: for training loops or multi-step models, prefer this so
-# the profiler only captures a stable window.  Cycle: skip 1, warmup 1, record 3.
-# ---------------------------------------------------------------------------
-def main_scheduled():
-    # ... build kernel/inputs as above ...
-    pass  # left as a stub on purpose, see SKILL.md "Scheduled profiling" section
 
 if __name__ == "__main__":
     main()

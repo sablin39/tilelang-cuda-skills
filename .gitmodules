@@ -1,0 +1,4 @@
+[submodule "external/KernelWiki"]
+	path = external/KernelWiki
+	url = https://github.com/mit-han-lab/KernelWiki.git
+	shallow = true

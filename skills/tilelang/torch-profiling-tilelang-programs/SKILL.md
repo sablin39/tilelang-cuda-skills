@@ -1,330 +1,128 @@
 ---
 name: torch-profiling-tilelang-programs
-description: >
-  Use torch.profiler as a lightweight, always-available alternative to
-  Nsight Compute/Systems for profiling, debugging, and optimizing TileLang
-  GPU kernels. Trigger this skill whenever the user wants to profile a
-  TileLang kernel without installing ncu/nsys, get an operator/kernel
-  breakdown of a forward pass that includes TileLang custom ops, hunt
-  launch-overhead in a multi-kernel pipeline, classify whether a TileLang
-  kernel is IO-bound / CUDA-core bound / Tensor-core bound, generate a
-  Chrome trace, profile GPU memory allocations, or compare a TileLang
-  kernel against a torch/cuBLAS reference inside one trace. Also trigger
-  on phrases like "profile this kernel", "why is this slow", "how do I see
-  the kernel timeline", "lightweight profiling", "torch profiler",
-  "chrome trace", or "perfetto", even if the user does not mention
-  TileLang explicitly but TileLang code is on the table.
+description: Inspect a PyTorch baseline with torch.compile graphs/code and torch.profiler before drafting a custom kernel, then compare TileLang and PyTorch timelines, forward/backward regions, and allocations. Use for baseline analysis and attribution; use do_bench for controlled latency comparisons.
 ---
 
-# Profiling TileLang Programs with `torch.profiler`
+# Profiling TileLang Workflows with PyTorch
 
-## When to reach for this skill
+Use `torch.profiler` to attribute CPU/device work and inspect scheduling,
+copies, allocations, and synchronization. It does not directly establish an
+instruction-level bottleneck. Verify CUDA profiling support in the installed
+build; a CPU-only trace is insufficient for GPU timing.
 
-`torch.profiler` (the Kineto-based one in `torch.profiler`, **not** the legacy
-`torch.autograd.profiler`) is the right tool when:
+## Understand the baseline before drafting
 
-- ncu / nsys aren't installed (cluster without admin, containerized env).
-- You want the full forward (or fwd+bwd) view, not a single kernel.
-- You need a per-op breakdown that includes PyTorch ops and TileLang custom kernels in the same timeline.
-- You're hunting CPU↔GPU overlap, kernel launch overhead, or which step in a model is slowest.
+When a PyTorch implementation is available, start with
+[torch-compile-inspection.md](references/torch-compile-inspection.md). Validate
+its eager/compiled paths, inspect graphs and generated code, and profile the
+warmed operation. Identify a concrete region, layout contract, and cost before
+choosing the custom kernel's scope. Keep eager and compiled timing results
+separate and retain the existing PyTorch implementation as the reference.
 
-When this skill is **not** enough:
+## Profile a warmed workflow
 
-- Register-spill, bank-conflict, occupancy, warp-stall analysis → use the
-  `profiling-tilelang-programs` skill (ncu) instead. `torch.profiler` shows
-  *what* is slow; ncu shows *why*.
-- Single-kernel deep-dive at the SM/DRAM level → ncu.
-
-This skill is the lightweight first pass; escalate to ncu when symptoms point
-to a hardware-level issue.
-
-## Honest scope: what torch.profiler can and cannot tell you
-
-`torch.profiler` reports **time** (per op, per kernel, per launch) and **memory
-allocations**. From that alone you can directly identify:
-
-- **Memory-bound kernels** — achieved GB/s near peak HBM bandwidth.
-- **Launch-overhead-bound code** — `cuLaunchKernel` CPU time approaching the kernel's GPU time.
-- **CPU-bound code paths** — long CPU intervals with little or no concurrent GPU work.
-- **Which kernel dominates** the timeline.
-
-But for TileLang specifically, **the profiler cannot, on its own**, distinguish:
-
-- Tensor-core vs CUDA-core use — TileLang names every kernel after its `prim_func`, e.g. `gemm_kernel`. You won't see `hmma`, `wgmma`, `cutlass_tensorop` in the name. Inspect the generated CUDA source instead (`kernel.get_kernel_source()`).
-- Register spill, shared-memory bank conflicts, low occupancy — these show up only as "this kernel runs slowly compared to its theoretical peak". You need ncu to confirm the mechanism.
-
-So the workflow is: **measure with torch.profiler → roofline-classify → if the kernel underperforms, escalate to source inspection or ncu**.
-
-## Quick start: profile a single TileLang kernel
-
-A reusable template is bundled at `scripts/profile_template.py`. Copy it next
-to your kernel script and adapt the marked section. The essentials are:
+Adapt [scripts/profile_template.py](scripts/profile_template.py). It validates
+the example, warms both paths, labels them, and exports a trace. For your own
+operation:
 
 ```python
 import torch
 from torch.profiler import profile, ProfilerActivity, record_function
 
-# Build + warm up the kernel so JIT compile cost doesn't leak into the trace.
-kernel = my_tilelang_kernel(...)
 for _ in range(10):
-    kernel(a, b)
+    custom_call()
+    reference_call()
 torch.cuda.synchronize()
 
-with profile(
-    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    record_shapes=True,
-) as prof:
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
     for _ in range(20):
-        with record_function("tilelang_kernel"):
-            kernel(a, b)
-        with record_function("torch_ref"):
-            a @ b
+        with record_function("custom"):
+            custom_call()
+        with record_function("reference"):
+            reference_call()
     torch.cuda.synchronize()
 
-print(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=20))
+print(prof.key_averages().table(sort_by="self_device_time_total", row_limit=20))
 prof.export_chrome_trace("trace.json")
 ```
 
-Why each part matters:
+Open the trace in Perfetto (`https://ui.perfetto.dev`). Read
+[trace-reading-guide.md](references/trace-reading-guide.md) for event
+attribution, overlapping work, and comparison pitfalls. A range and its nested
+kernel can describe the same work; do not add both into an operation total.
 
-- `warmup loop + cuda.synchronize()` — TileLang JIT-compiles on first call
-  (you'll see `TileLang begins to compile kernel ...` in the log). Without
-  warmup that compile time pollutes your first iteration. Aim for **at least
-  10 warmup calls** for autotuned kernels; the compile log line stops printing
-  once it's done.
-- `record_function("...")` — names a region so it appears as a single row in
-  the table and as a labeled band in the Chrome trace. Wrap each thing you
-  want to compare. Without it you only see the underlying CUDA kernel name.
-- `ProfilerActivity.CUDA` — required to capture GPU events. Without it you
-  only get CPU-side launches.
-- `record_shapes=True` — keeps the input shapes so you can group by
-  `key_averages(group_by_input_shape=True)`. Costs a little overhead; turn
-  off in production-style benchmarking.
-- The `synchronize()` after the loop ensures the last kernel's events make
-  it into the trace before the context exits.
+Keep `record_shapes` and `with_stack` off unless needed for grouping or memory
+analysis. Final performance comparisons belong in
+[controlled benchmarks](../profiling-tilelang-programs/SKILL.md), because
+profiling changes execution costs.
 
-## Scheduled profiling for longer runs
-
-For training loops or multi-step models, replace the simple `with profile(...)` block with the scheduled form so you sample a stable window rather than including the cold first step:
+## Training or multi-step workflows
 
 ```python
-from torch.profiler import schedule, tensorboard_trace_handler
+from torch.profiler import schedule
 
 with profile(
     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    schedule=schedule(skip_first=10, wait=1, warmup=1, active=3, repeat=1),
-    on_trace_ready=tensorboard_trace_handler("./tb_log"),
+    schedule=schedule(wait=1, warmup=1, active=3, repeat=1),
+    on_trace_ready=lambda p: p.export_chrome_trace("training_trace.json"),
 ) as prof:
-    for step in range(N):
-        train_step(...)
+    for step in range(5):
+        train_step()
         prof.step()
 ```
 
-Cycle: skip 10 → wait 1 → warmup 1 → record 3 → fire `on_trace_ready` → done. View later with `tensorboard --logdir tb_log` (requires `pip install torch_tb_profiler`). The scheduled API is preferred for long-running jobs because it bounds profiler overhead.
+Place `record_function` ranges around forward, backward, and optimizer work
+when comparing their contribution. Keep synchronization representative of the
+real workflow; do not insert a device-wide sync after every operation merely
+to simplify attribution.
 
-## Reading the `key_averages` table
+## Allocation inspection
 
-The table has many columns; for TileLang triage the load-bearing ones are:
-
-| Column | What it means |
-|--------|---------------|
-| `Self CUDA` | GPU time spent in this op *excluding* nested kernels — this is the one that ranks "real" cost |
-| `CUDA total` | GPU time including nested calls (use for `record_function` ranges) |
-| `Self CPU` | CPU time spent inside this op |
-| `# of Calls` | how many times the event fired |
-
-Sort by `self_cuda_time_total` to find the biggest GPU cost; sort by
-`self_cpu_time_total` to find CPU bottlenecks (often dataloader, host-side
-preprocessing, or chatty Python).
-
-A TileLang kernel always shows up twice in the table — once as your
-`record_function` name (the CPU-side range) and once as the underlying CUDA
-kernel name (whatever the `prim_func` is, usually `gemm_kernel`, `add_kernel`,
-etc.). They report the same `Self CUDA` value. Use the kernel name when you
-need to identify the exact GPU work, and the `record_function` name when you
-want grouping that you control.
-
-`cuLaunchKernel` / `cudaLaunchKernel` rows show **per-launch CPU dispatch
-cost**. Their total CPU time vs the total GPU time is the launch-overhead
-diagnostic (see below).
-
-## Identifying the bottleneck: IO / CUDA core / Tensor core
-
-There is no single metric in torch.profiler that says "tensor-core bound". You
-classify by **roofline analysis** on the numbers you do measure, then confirm
-with a glance at the generated CUDA source. See
-`references/bottleneck-classification.md` for the full decision tree and
-worked examples; the short version is:
-
-### Step 1 — compute achieved throughput
-
-From the per-call GPU time (`evt.self_device_time_total / evt.count`, in
-microseconds), derive:
-
-```python
-tflops    = (2 * M * N * K) / (us_per_call * 1e-6) / 1e12     # for GEMM-like
-gb_per_s  = total_bytes      / (us_per_call * 1e-6) / 1e9     # for memory-bound
-```
-
-For GEMM-like kernels with non-trivial epilogues, also add the epilogue work
-to the numerator (usually negligible). For memory-bound kernels,
-`total_bytes` should count every distinct global-memory byte read or written
-exactly once.
-
-### Step 2 — compare against hardware peak
-
-Look up the device's peak using `torch.cuda.get_device_properties(0)` and the
-GPU's datasheet. Roughly:
-
-| Class | If achieved is near peak of... | Likely bound |
-|-------|--------------------------------|--------------|
-| HBM bandwidth | DRAM peak (e.g., ~1700 GB/s on RTX PRO 6000) | **IO-bound** (memory) |
-| Tensor-core peak (fp16/bf16/fp8) | Tensor TFLOPS peak | **Tensor-core bound** |
-| FP32 FMA peak (CUDA cores) | Scalar TFLOPS peak | **CUDA-core bound** |
-| None of the above | far below every peak | **Latency-bound** (launch overhead, low occupancy, stalls — escalate to ncu) |
-
-### Step 3 — confirm with the generated CUDA source
-
-`kernel.get_kernel_source()` returns the generated CUDA. Grep for:
-
-- **Tensor cores in use** — TileLang wraps MMA in a template header, so the raw `mma.sync` / `wgmma` tokens often DO NOT appear in the top-level source even when the kernel is tensor-core based. The reliable indicators in TileLang-emitted CUDA are:
-  - `#include "tl_templates/cuda/instruction/mma.h"` (or similar `tl_templates/.../mma*.h`) — TileLang's MMA template header is pulled in
-  - `CUtensorMap` declarations — TMA descriptors, the Hopper/Blackwell async tensor-core data path
-  - `mbarrier` / `cp.async.bulk.tensor` — the producer/consumer barriers and TMA loads that flank a wgmma pipeline
-  - `__hmma_*`, `wmma::mma_sync` — older WMMA path (rare in newly generated TileLang)
-  
-  If the C++ source doesn't show raw MMA tokens, dump the PTX (`cuobjdump --dump-ptx ...`) or SASS to confirm at the instruction level. The TileLang cache typically lives under `~/.tilelang/cache/` — each compiled kernel has its `.cu`, `.ptx`, and `.fatbin` artifacts there.
-- **CUDA cores only** — no `tl_templates/.../mma.h` include, no `CUtensorMap`, just plain scalar `+`/`*`/`fma` on fp/int. This is what `T.Parallel` elementwise math compiles to.
-- **Possible register spill** — search for `.local` references in the PTX (`cuobjdump --dump-ptx`) or `STL`/`LDL` in SASS (`cuobjdump --dump-sass`). Symptoms in torch.profiler: a kernel that gets nowhere near its theoretical peak despite a generous tile size. The top-level `.cu` source from `kernel.get_kernel_source()` does NOT show this directly — you must drop to PTX or SASS.
-
-### Worked example (numbers from the experiment in `references/bottleneck-classification.md`)
-
-On an RTX PRO 6000 Blackwell, fp16 4096³ GEMM:
-
-| Kernel | us/call | Achieved | Classification |
-|--------|---------|----------|----------------|
-| Good GEMM (block 128×128×64, T.gemm) | 376 | **366 TFLOPS** | Tensor-core bound (~half of fp16 peak, headroom remains) |
-| Spill GEMM (oversized 256×256×32 tile) | 3689 | 37 TFLOPS | Same kernel name, same tile API — but 10× slower; **escalate to ncu / source inspection** to confirm spill |
-| FMA-only GEMM (no `T.gemm`, scalar loops, 1024³) | 73 | 29 TFLOPS | **CUDA-core bound** — well below tensor-core peak, achieved peak matches scalar FMA |
-| Memory-bound add (8192² fp16) | 261 | **1541 GB/s** | **IO-bound** — ~90% of HBM peak |
-| Tiny GEMM (128³, 200 launches) | 3.8 | n/a | **Launch-overhead-bound** — cuLaunchKernel CPU total ≈ kernel CPU total |
-
-The first three all show as `gemm_kernel` in the trace. **You cannot
-distinguish them from the kernel name alone** — only from achieved TFLOPS
-relative to peak plus a peek at the generated source.
-
-## Diagnosing launch overhead
-
-If `cuLaunchKernel`'s total CPU time approaches the kernel's total GPU time,
-the workload is launch-bound: the CPU side is the bottleneck, not the GPU.
-
-```
-cuLaunchKernel  Self CPU:  862us across 200 calls   (~4.3us/launch)
-gemm_kernel     Self CUDA: 760us across 200 calls   (~3.8us/kernel)
-```
-
-When per-launch CPU cost rivals per-kernel GPU cost, every option below is
-worth trying:
-
-- Increase the per-launch work (larger batch / tile / fused kernel) so the
-  GPU side dominates again.
-- Use CUDA graphs (or `do_bench(backend="cudagraph")` for measurement). The
-  TileLang `profiling-tilelang-programs` skill covers the cudagraph backend.
-- Fuse adjacent kernels (epilogue fusion, kernel fusion across small ops).
-
-## Memory profiling
-
-For OOM hunts and allocation-pattern questions, enable `profile_memory` and
-export a timeline. The current path is via the (still working but deprecated)
-`export_memory_timeline`:
+For a profiler memory timeline, all three options are required:
 
 ```python
 with profile(
     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    profile_memory=True,
-    record_shapes=True,
+    profile_memory=True, record_shapes=True, with_stack=True,
 ) as prof:
     forward_pass()
-
-prof.export_memory_timeline("memory.html", device="cuda:0")
+    torch.cuda.synchronize()
+prof.export_memory_timeline("memory.json", device="cuda:0")
 ```
 
-The HTML embeds a stacked-area plot of allocations by category over time.
-Use `.json.gz` for raw data, `.raw.json.gz` for per-event allocator actions.
-
-The PyTorch docs recommend the newer `torch.cuda.memory._record_memory_history`
-/ `_export_memory_snapshot` pair for deeper allocator analysis:
+JSON export needs no plotting library; HTML export additionally uses Matplotlib.
+Timeline export is deprecated in the inspected PyTorch build. For allocator
+history, use the API actually present in the selected environment:
 
 ```python
 torch.cuda.memory._record_memory_history(max_entries=100_000)
-forward_pass()
-torch.cuda.memory._export_memory_snapshot("snapshot.pickle")
-torch.cuda.memory._record_memory_history(enabled=None)
-```
-
-Open `snapshot.pickle` at https://pytorch.org/memory_viz to see allocations,
-frees, and stack traces. This is the right tool for "where did my N GB go".
-
-## Comparing TileLang vs a reference in one trace
-
-Put both inside the same profile, each in its own `record_function`:
-
-```python
-with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-    for _ in range(20):
-        with record_function("tilelang_matmul"):
-            kernel(a, b)
-        with record_function("torch_matmul"):
-            a @ b
+try:
+    forward_pass()
     torch.cuda.synchronize()
+    torch.cuda.memory._dump_snapshot("snapshot.pickle")
+finally:
+    torch.cuda.memory._record_memory_history(enabled=None)
 ```
 
-The Chrome trace then shows both kernel bands side by side, and the
-`key_averages` table reports per-call GPU time for each label, ready for a
-TFLOPS-vs-TFLOPS comparison. This is the lightweight equivalent of running
-two `do_bench` calls back-to-back, but with the bonus of seeing exactly which
-underlying CUDA kernels each path produces (helpful when you suspect torch is
-falling back to a non-tensor-core path).
+These are private APIs; inspect their signatures when changing PyTorch versions.
+View snapshots at `https://pytorch.org/memory_viz`. They describe the PyTorch
+allocator, so external allocations may be absent. Limiting allocator capacity
+does not freeze allocation behavior or replace warmup.
 
-## Visualizing the trace
+## Move from observation to a change
 
-`prof.export_chrome_trace("trace.json")` writes a Chrome-format trace.
-Two ways to view it:
+Use [bottleneck-classification.md](references/bottleneck-classification.md) to
+turn trace observations into hypotheses and a controlled experiment. Follow
+unexpected launches or copies back to host/device source and lowering traces.
+Use nsys for a broader system timeline or ncu for a selected kernel's diagnostic
+sections. Optional in-kernel instrumentation is described in TileLang's
+[IKET workflow](../profiling-tilelang-programs/references/iket-profiling.md); it
+requires an external runtime and should only be used when ordinary traces cannot
+answer the question.
 
-- **chrome://tracing** — open Chrome, paste `chrome://tracing` in the URL bar, click Load, pick the file.
-- **Perfetto** — https://ui.perfetto.dev/ → "Open trace file". Perfetto handles large traces better and has a nicer query UI.
+## Completion evidence
 
-What to look for in the timeline:
-
-- **Gaps between kernels** with no concurrent CPU work → launch overhead or sync.
-- **CPU work between kernels** but no GPU activity → CPU-bound preprocessing.
-- **Overlapping kernels on different streams** → good multi-stream pipelining.
-- **A wide gap then a burst** → likely a `cudaMalloc` or first-touch JIT compile slipping past your warmup; widen the warmup loop or freeze allocator behavior with `torch.cuda.memory.set_per_process_memory_fraction`.
-
-## Common pitfalls
-
-| Pitfall | Symptom | Fix |
-|---------|---------|-----|
-| No warmup before the profile block | First iteration is 10× slower; JIT log lines inside the trace | Run ≥10 warmup calls + `torch.cuda.synchronize()` before entering the `with profile(...)` |
-| Forgot `ProfilerActivity.CUDA` | `Self CUDA` column is all zeros | Add `ProfilerActivity.CUDA` to `activities` |
-| Forgot `cuda.synchronize()` inside the block | Last few kernels missing from the trace | Call `torch.cuda.synchronize()` right before exiting `with profile(...)` |
-| `record_shapes=True` left on for benchmarking | Wall time and table inflated by 10–20% | Turn off when you care about absolute timing |
-| Reading `Self CPU` to judge GPU work | "Why is my kernel only 0us of CPU?" | TileLang kernel = GPU work; look at `Self CUDA` |
-| Using kernel name to infer tensor-core use | "It's called gemm_kernel so it must use tensor cores" | Always confirm with `kernel.get_kernel_source()` — TileLang names kernels after the prim_func, not after what they lower to |
-| Comparing tiny kernels with the `event` backend | Numbers vary 30% run-to-run | Sort by median over ≥20 reps; for very small kernels use `do_bench(backend="cudagraph")` |
-| Profiling a freshly created `@tilelang.jit` kernel | First call includes minutes of autotune | Either warm up first or autotune separately and cache before profiling |
-
-## Escalation
-
-| Symptom from torch.profiler | Next skill / tool |
-|----------------------------|-------------------|
-| Kernel is slow but achieved TFLOPS far below peak; cause unclear | `profiling-tilelang-programs` (ncu) — pipe util, warp stalls, register spill |
-| Wrong output / NaNs | `debugging-tilelang-programs` |
-| Want to actually fix the slowness (tile sizes, pipeline, fusion) | `optimizing-tilelang-programs` |
-| Need fwd+bwd timeline together | This skill, scheduled mode + `tensorboard_trace_handler` |
-| Allocator fragmentation / OOM | `_record_memory_history` + https://pytorch.org/memory_viz |
-
-For the detailed roofline-classification decision tree and source-inspection
-checklists, read `references/bottleneck-classification.md`. For deeper
-guidance on Chrome trace / Perfetto navigation, read
-`references/trace-reading-guide.md`.
+Return the trace/snapshot path, capture command and scope, selected ranges and
+device events, and the observation that motivates the next experiment. If GPU
+events are absent, report the missing attribution. Remeasure a proposed change
+with the same controlled benchmark before claiming a performance improvement.

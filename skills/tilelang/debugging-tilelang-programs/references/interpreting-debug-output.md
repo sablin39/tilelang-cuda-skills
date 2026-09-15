@@ -1,121 +1,47 @@
-# Interpreting Debug Output
+# Interpreting Debug Evidence
 
-How to read and act on output from TileLang debugging tools.
+## Compare the earliest differing value
 
-## Table of Contents
+Run a small case with a known reference and inspect values after load,
+accumulation/reduction, and writeback. Match logical buffer indices and dtype
+when reading `T.print`; layout transformations can distribute a fragment
+across threads. Avoid diagnosing a transpose or scale error from a single
+scalar alone.
 
-1. [T.print Output](#1-tprint-output)
-2. [compute-sanitizer Output](#2-compute-sanitizer-output)
-3. [AutoDD Minimized Output](#3-autodd-minimized-output)
+| Observation | Hypothesis to test |
+| --- | --- |
+| Inputs already differ after load | Addressing, strides, masks, or dtype |
+| Load matches, accumulation differs | Initialization, transpose, reduction, scale |
+| Accumulation matches, output differs | Writeback, conversion, ownership |
+| Only tail values differ | Bounds, padding identity, mask convention |
+| Extreme finite values produce inf/NaN | Unstable exp/log/division or accumulation overflow |
+| Repeated calls differ | State reset, numerical atomic order, or synchronization |
 
-For performance profiling output (ncu reports, nsys timelines), see `profiling-tilelang-programs/references/ncu-bottleneck-guide.md`.
+## Read a sanitizer report
 
----
+Record the tool, access kind, address/size, kernel, source location, and
+reported thread/block. Use a build with source correlation and a small
+reproducer. Multiple reports can originate from the same first error; fix
+that access before interpreting downstream corruption.
 
-## 1. T.print Output
+Memcheck, racecheck, initcheck, and synccheck answer different questions.
+Shared-memory race detection does not cover every global-memory protocol.
+Diagnostic success is evidence for the checked case, not a universal proof.
 
-### Output Format
+## Read a lowering trace
 
-Each `T.print(buffer, msg='label:')` call produces one line per element, from thread 0 of each block:
+Start from specialized TIR and find the first pass whose output no longer
+matches the intended contract. Compare loops, regions, output initialization,
+and producer/consumer relationships. A failed pass's input is useful even
+when no compiled kernel object exists.
 
-```
-msg='label:' BlockIdx=(0, 0, 0), ThreadIdx=(0, 0, 0): buffer=A_shared, index=0, dtype=half_t value=1.234
-msg='label:' BlockIdx=(0, 0, 0), ThreadIdx=(0, 0, 0): buffer=A_shared, index=1, dtype=half_t value=5.678
-```
+Keep a matching record of the factory arguments, target/backend, and pass
+configs. Source dumps from a cached or differently specialized kernel can
+explain the wrong program. A generated-source edit must actually be recompiled
+before it can explain changed runtime behavior.
 
-### Mapping index to Tensor Coordinates
+## Validate a minimized reproducer
 
-For a 1D buffer of size N, `index=i` maps directly to element `buffer[i]`.
-
-For a 2D buffer of shape (M, N), `index=k` maps to `buffer[k // N, k % N]` (row-major). For example, with a (4, 8) buffer:
-- `index=0` → `[0, 0]`
-- `index=7` → `[0, 7]`
-- `index=8` → `[1, 0]`
-- `index=15` → `[1, 7]`
-
-### Comparison Workflow
-
-1. Shrink to minimal size (e.g., M=N=K=block_M for GEMM) so output is manageable
-2. Use `TensorSupplyType.Integer` for predictable values
-3. Compute reference in PyTorch at the same small size
-4. Print the reference tensor: `print(ref_tensor)`
-5. Compare element-by-element against T.print output
-
-### Pattern Interpretation
-
-| What you see | Likely cause |
-|-------------|-------------|
-| All values are NaN | Missing `T.clear()` on accumulator fragment |
-| Mix of correct values and NaN/garbage | Missing `T.clear()` — some elements happen to be finite from uninitialized memory |
-| All values are large random numbers | Missing `T.copy` writeback — reading uninitialized global memory |
-| Values match reference for first tile but not subsequent tiles | Off-by-one in tile iteration or indexing |
-| Values are transposed vs reference | Grid dimensions (bx, by) swapped relative to T.copy offsets |
-| Values correct except a few scattered elements | Possible race condition or boundary issue |
-
-## 2. compute-sanitizer Output
-
-### Running
-
-```bash
-compute-sanitizer --tool memcheck python script.py
-```
-
-### Reading Error Messages
-
-Typical output:
-
-```
-========= Invalid __global__ read of size 8 at 0x... by thread (31, 0, 0) in block (3, 2, 0)
-=========     Address 0x... is out of bounds
-=========     Saved host backtrace up to driver entry point at kernel launch time
-```
-
-### Interpreting Errors
-
-| Error | Meaning | Common cause |
-|-------|---------|-------------|
-| `Invalid __global__ read of size N` | Read from address outside allocated buffer | Index calculation goes past tensor bounds |
-| `Invalid __global__ write of size N` | Write to address outside allocated buffer | T.copy destination offset wrong |
-| `Misaligned address` | Access not aligned to element size | Non-contiguous tensor passed to kernel |
-| `Address is out of bounds` | Address completely outside any allocation | Likely large indexing error (wrong buffer or dimension) |
-
-### Mapping to Kernel Code
-
-The error includes `thread (tx, ty, tz) in block (bx, by, bz)`. Map these back to your kernel:
-
-1. `block (bx, by, bz)` corresponds to `T.Kernel(grid_x, grid_y, grid_z)` — identifies which tile
-2. The thread indices help narrow down which element within the tile caused the error
-3. Reduce to single tile (M=block_M, N=block_N) to eliminate multi-block interactions
-
-### Common Patterns
-
-- Error in last block only → tile size doesn't divide problem size, boundary not handled
-- Error in all blocks → systematic indexing bug
-- Error only with large problem sizes → off-by-one that only triggers at boundaries
-
-## 3. AutoDD Minimized Output
-
-### What AutoDD Produces
-
-AutoDD takes a failing script and systematically removes code until it finds the minimal reproduction. The output is a valid Python file that still triggers the same error.
-
-```bash
-python -m tilelang.autodd script.py --err-msg "T.gemm K shape check" -o minimized.py -j 4
-```
-
-### Using the Minimized Output
-
-1. **Run it** to confirm it still fails: `python minimized.py`
-2. **Read the kernel** — it will be much shorter than the original (often 20-40 lines)
-3. **Identify the bug** — in a minimal kernel, the problematic construct is usually obvious:
-   - Wrong buffer shape passed to `T.gemm`
-   - Missing `T.clear` or `T.copy`
-   - Wrong loop bounds
-4. **Fix in the minimal version first**, verify it works, then apply the fix to your original code
-
-### Tips
-
-- Use a specific error substring (`--err-msg`), not a generic one like "Error"
-- If AutoDD itself crashes, try `--backend subproc` for more isolation
-- Increase `--timeout` for kernels that take longer to compile
-- Use `-j 4` or higher for faster minimization (runs trials in parallel)
+Run it directly under the intended environment and verify the same failure.
+AutoDD's text signature can accidentally match a warning or print statement;
+inspect the reduced program before treating it as a kernel/compiler bug.

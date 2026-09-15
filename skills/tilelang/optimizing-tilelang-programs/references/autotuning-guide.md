@@ -1,292 +1,126 @@
-# Autotuning Guide
+# Autotuning a Validated Operator
 
-Complete walkthrough for using TileLang's AutoTuner to automatically find optimal kernel configurations.
+Expose configuration choices as factory arguments, validate candidates against
+a reference returning tensors, and benchmark a bounded search on one selected
+device. This guide follows the current checkout's programming guides and
+checks their call contracts against the implementation.
 
-## Table of Contents
+## Decorator workflow
 
-1. [When to Autotune](#when-to-autotune)
-2. [Programmatic API (Recommended)](#programmatic-api-recommended)
-3. [Generating Config Search Spaces](#generating-config-search-spaces)
-4. [Interpreting Results](#interpreting-results)
-5. [Complete Example](#complete-example)
-6. [Known Issues](#known-issues)
-
----
-
-## When to Autotune
-
-Autotuning is most valuable when:
-- You have a kernel that works but you don't know the optimal tile sizes
-- The kernel will be used at multiple problem sizes (different configs may be optimal)
-- Manual tuning has plateaued and you want to explore more configurations
-- You're deploying to a new GPU architecture
-
-Autotuning is NOT needed when:
-- The kernel is memory-bound (tile sizes matter less)
-- You already know the optimal config from prior experiments
-- The kernel is a one-off experiment (manual tuning is faster for < 5 configs)
-
-## Programmatic API (Recommended)
-
-The programmatic `AutoTuner.from_kernel()` API is the reliable way to autotune. The `@tilelang.autotune` decorator has a cache serialization bug when `ref_prog` is a function -- use the programmatic API instead.
-
-### Basic Usage
+This complete example tunes two block sizes. It uses fixed input data and a
+tail size so correctness includes boundary handling.
 
 ```python
-from tilelang.autotuner import AutoTuner
-import tilelang as tl
+import torch
+import tilelang
+import tilelang.language as T
+from tilelang.autotuner import set_autotune_inputs
 
-# 1. Define your kernel function (must return a @T.prim_func)
-@tl.jit(out_idx=[-1])
-def my_kernel(M, N, K, block_M, block_N, block_K, num_stages=2, threads=128,
-              dtype=tl.language.float16, accum_dtype=tl.language.float32):
-    @tl.language.prim_func
-    def kernel(
-        A: tl.language.Tensor((M, K), dtype),
-        B: tl.language.Tensor((K, N), dtype),
-        C: tl.language.Tensor((M, N), dtype),
-    ):
-        with tl.language.Kernel(
-            tl.language.ceildiv(N, block_N),
-            tl.language.ceildiv(M, block_M),
-            threads=threads,
-        ) as (bx, by):
-            A_shared = tl.language.alloc_shared((block_M, block_K), dtype)
-            B_shared = tl.language.alloc_shared((block_K, block_N), dtype)
-            C_local = tl.language.alloc_fragment((block_M, block_N), accum_dtype)
-            tl.language.clear(C_local)
-            for ko in tl.language.Pipelined(
-                tl.language.ceildiv(K, block_K), num_stages=num_stages
-            ):
-                tl.language.copy(A[by * block_M, ko * block_K], A_shared)
-                tl.language.copy(B[ko * block_K, bx * block_N], B_shared)
-                tl.language.gemm(A_shared, B_shared, C_local)
-            tl.language.copy(C_local, C[by * block_M, bx * block_N])
+def reference(A, B):
+    return A + B
+
+@tilelang.autotune(
+    configs=[{"block": 128}, {"block": 256}],
+    ref_prog=reference, warmup=3, rep=10,
+    rtol=1e-5, atol=1e-6, max_mismatched_ratio=0.0,
+)
+@tilelang.jit(out_idx=[-1])
+def add(N, block=128):
+    @T.prim_func
+    def kernel(A: T.Tensor((N,), T.float32),
+               B: T.Tensor((N,), T.float32),
+               C: T.Tensor((N,), T.float32)):
+        with T.Kernel(T.ceildiv(N, block), threads=128) as bx:
+            for i in T.Parallel(block):
+                index = bx * block + i
+                if index < N:
+                    C[index] = A[index] + B[index]
     return kernel
 
-# 2. Define configs to search
-configs = [
-    {"block_M": 64,  "block_N": 64,  "block_K": 32, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 32, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 64, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 32, "num_stages": 3, "threads": 256},
-]
-
-# 3. Define reference for correctness check
-def ref_program(A, B):
-    return A @ B
-
-# 4. Create and run autotuner
-autotuner = (
-    AutoTuner.from_kernel(my_kernel, configs)
-    .set_compile_args(out_idx=[-1], target="auto")
-    .set_profile_args(
-        supply_type=tl.TensorSupplyType.Integer,
-        ref_prog=ref_program,
-        warmup=3,
-        rep=20,
-    )
-)
-
-result = autotuner.run()
+if __name__ == "__main__":
+    a = torch.randn(273, device="cuda")
+    b = torch.randn_like(a)
+    with set_autotune_inputs(a, b):
+        best = add(a.numel())
+    torch.testing.assert_close(best(a, b), reference(a, b))
+    print("autotuned add: PASS")
 ```
 
-### AutoTuner API Reference
+The decorator is stacked above `@tilelang.jit`. Config keys must match tunable
+arguments. Callable config spaces should return a concrete list for the chosen
+problem. With `out_idx=[-1]`, both the supplied input list and the best-kernel
+launch omit C. Do not copy examples that pass all buffers to an output-returning
+kernel. `ref_prog` returns expected tensors; a boolean predicate is not the
+reference output contract.
 
-**`AutoTuner.from_kernel(kernel_fn, configs)`**
-- `kernel_fn`: The JIT-decorated kernel function
-- `configs`: List of dicts, each mapping parameter names to values. Only include parameters you want to vary -- fixed parameters (M, N, K, dtype) are passed separately.
+## Programmatic workflow
 
-**`.set_compile_args(**kwargs)`**
-- `out_idx`: Same as `@tilelang.jit(out_idx=...)` 
-- `target`: `"auto"` (inferred), `"cuda"`, or specific target string
-
-**`.set_profile_args(**kwargs)`**
-- `supply_type`: `tl.TensorSupplyType.Integer` (best for correctness) or `tl.TensorSupplyType.Normal`
-- `ref_prog`: Reference function for correctness validation
-- `warmup`: Warmup time in ms (default 25)
-- `rep`: Repetition time in ms (default 100)
-
-**`.run(**kwargs)`**
-- Returns a result object with `.config`, `.latency`, `.kernel`
-- Configs that fail to compile or produce incorrect results are automatically skipped
-
-### Result Object
+Use a **plain factory** returning a PrimFunc, with fixed problem dimensions
+captured in its closure. Do not pass a JITImpl or already-compiled JITKernel
+into `AutoTuner.from_kernel`.
 
 ```python
-result = autotuner.run()
-result.config    # dict: the winning configuration
-result.latency   # float: latency in ms
-result.kernel    # compiled kernel object, ready to use
-```
-
-## Generating Config Search Spaces
-
-### Manual Grid
-
-For a focused search, enumerate specific configurations:
-
-```python
-configs = []
-for bm in [64, 128]:
-    for bn in [64, 128]:
-        for bk in [32, 64]:
-            for stages in [2, 3]:
-                for threads in [128, 256]:
-                    configs.append({
-                        "block_M": bm, "block_N": bn, "block_K": bk,
-                        "num_stages": stages, "threads": threads,
-                    })
-# 2 * 2 * 2 * 2 * 2 = 32 configs
-```
-
-### Practical Config Sets
-
-**Quick search** (3-5 configs, ~5 seconds):
-```python
-configs = [
-    {"block_M": 64,  "block_N": 64,  "block_K": 32, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 32, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 64, "num_stages": 2, "threads": 128},
-]
-```
-
-**Thorough search** (16-32 configs, ~30-60 seconds):
-```python
-configs = [
-    {"block_M": bm, "block_N": bn, "block_K": bk, "num_stages": ns, "threads": thr}
-    for bm in [64, 128]
-    for bn in [64, 128]
-    for bk in [32, 64]
-    for ns in [2, 3]
-    for thr in [128, 256]
-]
-```
-
-### Filtering Invalid Configs
-
-Some configs exceed shared memory or violate constraints. The autotuner skips configs that fail to compile, but you can pre-filter to save time:
-
-```python
-def is_valid_config(cfg, dtype_bytes=2):
-    shared = (cfg["block_M"] * cfg["block_K"] + cfg["block_K"] * cfg["block_N"]) * dtype_bytes * cfg["num_stages"]
-    return shared <= 228 * 1024  # 228 KB max on Blackwell
-
-configs = [c for c in configs if is_valid_config(c)]
-```
-
-## Interpreting Results
-
-### Good Signs
-
-- Best config is 10-50% faster than default (expected for compute-bound kernels)
-- Multiple configs are within 5% of each other (stable optimum)
-- Best config beats cuBLAS reference
-
-### Warning Signs
-
-- All configs have similar latency → kernel may be memory-bound (tile sizes don't matter much)
-- Best config has very large tiles → may not generalize to other problem sizes
-- Best config at 4096x4096 is different from best at 1024x1024 → need per-size tuning
-
-### Per-Size Tuning
-
-If your kernel runs at multiple problem sizes, autotune at each size:
-
-```python
-for M, N, K in [(1024, 1024, 1024), (4096, 4096, 4096), (8192, 8192, 8192)]:
-    autotuner = (
-        AutoTuner.from_kernel(lambda bM, bN, bK, **kw: my_kernel(M, N, K, bM, bN, bK, **kw), configs)
-        .set_compile_args(out_idx=[-1], target="auto")
-        .set_profile_args(supply_type=tl.TensorSupplyType.Integer, ref_prog=ref_program)
-    )
-    result = autotuner.run()
-    print(f"M={M}, N={N}, K={K}: best={result.config}, latency={result.latency:.4f}ms")
-```
-
-## Complete Example
-
-```python
-import tilelang
+import torch
 import tilelang.language as T
 from tilelang.autotuner import AutoTuner
 
-M, N, K = 4096, 4096, 4096
+def make_tuner(N):
+    def factory(block=128):
+        @T.prim_func
+        def kernel(A: T.Tensor((N,), T.float32),
+                   B: T.Tensor((N,), T.float32),
+                   C: T.Tensor((N,), T.float32)):
+            with T.Kernel(T.ceildiv(N, block), threads=128) as bx:
+                for i in T.Parallel(block):
+                    index = bx * block + i
+                    if index < N:
+                        C[index] = A[index] + B[index]
+        return kernel
 
-@tilelang.jit(out_idx=[-1])
-def matmul(M, N, K, block_M, block_N, block_K, num_stages=2, threads=128,
-           dtype=T.float16, accum_dtype=T.float32):
-    @T.prim_func
-    def kernel(
-        A: T.Tensor((M, K), dtype),
-        B: T.Tensor((K, N), dtype),
-        C: T.Tensor((M, N), dtype),
-    ):
-        with T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads=threads) as (bx, by):
-            A_shared = T.alloc_shared((block_M, block_K), dtype)
-            B_shared = T.alloc_shared((block_K, block_N), dtype)
-            C_local = T.alloc_fragment((block_M, block_N), accum_dtype)
-            T.clear(C_local)
-            for ko in T.Pipelined(T.ceildiv(K, block_K), num_stages=num_stages):
-                T.copy(A[by * block_M, ko * block_K], A_shared)
-                T.copy(B[ko * block_K, bx * block_N], B_shared)
-                T.gemm(A_shared, B_shared, C_local)
-            T.copy(C_local, C[by * block_M, bx * block_N])
-    return kernel
+    return (AutoTuner.from_kernel(factory, [{"block": 128}, {"block": 256}])
+            .set_compile_args(out_idx=[-1], target="cuda")
+            .set_profile_args(ref_prog=lambda a, b: a + b,
+                              rtol=1e-5, atol=1e-6, max_mismatched_ratio=0.0))
 
-def ref_program(A, B):
-    return A @ B
-
-configs = [
-    {"block_M": 64,  "block_N": 64,  "block_K": 32, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 32, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 64, "num_stages": 2, "threads": 128},
-    {"block_M": 128, "block_N": 128, "block_K": 32, "num_stages": 3, "threads": 256},
-]
-
-autotuner = (
-    AutoTuner.from_kernel(matmul, configs)
-    .set_compile_args(out_idx=[-1], target="auto")
-    .set_profile_args(
-        supply_type=tilelang.TensorSupplyType.Integer,
-        ref_prog=ref_program,
-        warmup=3,
-        rep=20,
-    )
-)
-
-result = autotuner.run()
-print(f"Best config: {result.config}")
-print(f"Best latency: {result.latency:.4f} ms")
-print(f"Best TFLOPS: {2 * M * N * K / result.latency * 1e-9:.1f}")
-
-# Use the best kernel
-best_kernel = result.kernel
-import torch
-a = torch.randn(M, K, device="cuda", dtype=torch.float16)
-b = torch.randn(K, N, device="cuda", dtype=torch.float16)
-c = best_kernel(a, b)
+if __name__ == "__main__":
+    result = make_tuner(273).run(warmup=3, rep=10)
+    a = torch.randn(273, device="cuda")
+    b = torch.randn_like(a)
+    torch.testing.assert_close(result.kernel(a, b), a + b)
+    print(result.config, result.latency)
 ```
 
-## Known Issues
+Separate compilation options (`out_idx`, target/backend, pass configs) from
+profiling options (reference, input supply, tolerances, benchmark backend).
+Keep settings in the appropriate call; the installed `.run` can override
+warmup/rep passed earlier, so set measurement budgets at that call explicitly.
 
-### `@tilelang.autotune` Decorator Bug
+## Reproducibility and resource controls
 
-The decorator syntax has a cache serialization bug when `ref_prog` is a function:
+- Prefer representative fixed inputs with `set_autotune_inputs`. Dynamic-shape
+  factories need concrete inputs or a custom supplier; generated tensor supply
+  cannot guess every symbolic size.
+- Reset mutated inputs or accumulated outputs between trials. Capturing tensors
+  alone does not guarantee the correct initial state for an in-place kernel.
+- Record chosen configuration, shape/dtype, input distribution, target/backend,
+  and benchmark method. Retest the winner outside the tuning loop.
+- Bound compilation workers with `TILELANG_AUTO_TUNING_CPU_COUNTS` or
+  `TILELANG_AUTO_TUNING_MAX_CPU_COUNT`; select the GPU through the environment.
+- Per-candidate timeout is a wait limit: it cannot forcibly stop a hung native
+  or CUDA call. Diagnose hangs with isolated reproducers before a broad search.
 
-```python
-# THIS WILL FAIL with: TypeError: Object of type function is not JSON serializable
-@tilelang.autotune(configs=configs, ref_prog=ref_program, ...)
-def my_kernel(...):
-    ...
-```
+## Cache and manual searches
 
-**Workaround**: Always use the programmatic `AutoTuner.from_kernel()` API instead. It does not have this bug and provides the same functionality.
+`TILELANG_CACHE_DIR` controls artifact placement. Use a writable experiment
+directory when needed. `TILELANG_DISABLE_CACHE=1` disables kernel caching;
+`TILELANG_AUTO_TUNING_DISABLE_CACHE=1` disables autotune disk caching. A fresh
+process may still be needed to avoid in-process reuse during inspection.
 
-### Config Compilation Failures
+For manual compilation sweeps, `JITImpl.par_compile` accepts dictionaries or
+tuples of factory arguments. Supply **all** required fixed dimensions along
+with the varying parameters, then benchmark each compiled result with the
+same harness. Do not mistake compilation throughput for kernel performance.
 
-Some configs may fail to compile (e.g., shared memory exceeds limits). The autotuner silently skips these and reports the best among successful configs. If ALL configs fail, you'll get an error -- check that at least one config is valid.
-
-### Timing Variance
-
-For very fast kernels (< 0.1 ms), timing variance between runs can be significant. Increase `rep` to 200+ for more stable results. The autotuner uses the same `do_bench` infrastructure as manual profiling.
+Source: [autotuning programming guide](https://github.com/tile-ai/tilelang/blob/main/docs/programming_guides/autotuning.md).
+The local docs contain older examples with mismatched output/reference or
+factory contracts; the runnable examples here use the inspected `qla` APIs.

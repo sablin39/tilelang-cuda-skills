@@ -1,145 +1,77 @@
-# GPU Performance Metrics Reference
+# Measurement Contracts and Static Estimates
 
-## Key Metrics for TileLang Kernels
+## Choose what a number includes
 
-### Throughput Metrics
+| Measurement | Include and report |
+| --- | --- |
+| Compiled kernel launch | Inputs already prepared; output allocation policy specified |
+| User-visible operator | Required allocation, conversion, zeroing, and all launches |
+| Graph replay | Capture performed before timing; compatible state/reset behavior |
+| Complete workflow | Host work, synchronization, copies, forward/backward phases |
+| Compilation/autotuning | Measure separately from steady-state execution |
 
-| Metric | Formula | Unit | What it tells you |
-|--------|---------|------|-------------------|
-| TFLOPS | `2 * M * N * K / latency_ms * 1e-9` | TFLOPS | Compute throughput for GEMM |
-| Effective Bandwidth | `bytes_moved / latency_ms * 1e-6` | GB/s | Memory throughput |
-| Arithmetic Intensity | `FLOPs / bytes_moved` | FLOPs/byte | Compute vs memory bound |
+Use a selected, available GPU and the same stream, shapes, dtypes, layouts,
+input state, and benchmark backend for comparisons. Warm both implementations.
+Include reset cost when it belongs to the operation; do not repeatedly time
+atomic accumulation into an already-accumulated output as if each run were fresh.
 
-### Occupancy Metrics (from ncu)
+`do_bench` uses millisecond budgets and returns milliseconds. Profiler events
+expose microsecond durations; Chrome trace and other formats may use different
+units. Check the format before converting or aggregating.
 
-| Metric | Target | Impact |
-|--------|--------|--------|
-| SM Occupancy | >50% | More warps to hide latency |
-| Theoretical Occupancy | Check | Limited by registers, shared mem, or block size |
-| Achieved Occupancy | Close to theoretical | If much lower, check for load imbalance |
+## Derived quantities
 
-### Memory Metrics (from ncu)
-
-| Metric | What it means |
-|--------|---------------|
-| Global Load Throughput | Bytes/sec read from DRAM |
-| Global Store Throughput | Bytes/sec written to DRAM |
-| Shared Memory Throughput | Bytes/sec through shared memory |
-| L2 Cache Hit Rate | Fraction of requests served by L2 |
-| Shared Memory Bank Conflicts | Wasted cycles from bank conflicts |
-
-### Compute Metrics (from ncu)
-
-| Metric | What it means |
-|--------|---------------|
-| SM Active Cycles | Fraction of cycles with active warps |
-| Tensor Core Utilization | Fraction of eligible cycles using tensor cores |
-| Warp Stall Reasons | Why warps are waiting (memory, sync, etc.) |
-
-### Pipe Utilization Metrics (from ncu)
-
-These metrics break down which compute pipe is the bottleneck. Compare them against each other — the one with the highest utilization relative to its peak is the "shortest stave" limiting kernel throughput.
-
-| Metric | ncu name | TileLang mapping |
-|--------|---------|-----------------|
-| Tensor pipe | `sm__pipe_tensor_cycles_active.avg.pct_of_peak_sustained_active` | `T.gemm` (MMA instructions) |
-| FMA pipe | `sm__pipe_fma_cycles_active.avg.pct_of_peak_sustained_active` | `T.Parallel` elementwise math |
-| ALU pipe | `sm__pipe_alu_cycles_active.avg.pct_of_peak_sustained_active` | Address computation, transcendentals (exp, log) |
-
-For the full bottleneck diagnosis methodology, see `ncu-bottleneck-guide.md`.
-
-## How to Calculate Bytes Moved
-
-| Operation | Read bytes | Write bytes | Total |
-|-----------|-----------|-------------|-------|
-| Elementwise (C = A op B) | 2 * M * N * elem_size | M * N * elem_size | 3 * M * N * elem_size |
-| Reduction (row sum) | M * N * elem_size | M * elem_size | M * (N + 1) * elem_size |
-| GEMM (C = A @ B) | (M*K + K*N) * elem_size | M * N * elem_size | (M*K + K*N + M*N) * elem_size |
-
-For fp16: elem_size = 2 bytes. For fp32: elem_size = 4 bytes.
-
-## Roofline Model
-
-A kernel is either **compute-bound** or **memory-bound**:
-
-```
-If arithmetic_intensity > peak_flops / peak_bandwidth:
-    kernel is compute-bound → optimize compute (tensor cores, tiling)
-else:
-    kernel is memory-bound → optimize memory (coalescing, vectorization)
+```python
+gemm_tflops = (2 * M * N * K) / latency_ms * 1e-9
+effective_gb_s = logical_bytes / latency_ms * 1e-6
 ```
 
-### Typical GPU Peak Numbers
+Count input/output dtypes separately. For row reduction with fp16 input and
+fp32 output, logical bytes are `M*N*2 + M*4`. For GEMM, reading each input
+once and writing each output once is a logical lower bound, not a measurement
+of memory traffic: tile reuse, caching, and redundant reads change actual
+transfers. State what the numerator models.
 
-These are approximate -- check your specific GPU with `nvidia-smi -q` or ncu:
+Summed kernel durations differ from elapsed time when work overlaps. Ranges
+and their child kernels can be duplicate representations of the same work.
+Use the timeline's dependency path for workflow latency.
 
-| GPU | Peak FP16 TFLOPS | Peak BW (GB/s) | Ridge Point (FLOPs/byte) |
-|-----|-------------------|----------------|--------------------------|
-| A100 | 312 | 2039 | 153 |
-| H100 | 990 | 3350 | 296 |
-| RTX 4090 | 330 | 1008 | 327 |
-| Your GPU | Check `nvidia-smi -q` | Check `nvidia-smi -q` | Compute from peak FP16 / peak BW |
+## Static TIR analysis
 
-### GEMM Arithmetic Intensity
+For a drafted tiled operator, inspect recognized work before benchmarking:
 
-For GEMM C = A @ B with M, N, K:
-```
-FLOPs = 2 * M * N * K
-Bytes = (M*K + K*N + M*N) * elem_size
-AI = 2*M*N*K / ((M*K + K*N + M*N) * elem_size)
-```
+```python
+from tilelang.tools import Analyzer
+from tilelang.carver.arch import CUDA
 
-For large square GEMM (M=N=K=4096, fp16):
-```
-AI = 2 * 4096^3 / (3 * 4096^2 * 2) ≈ 1365 FLOPs/byte → compute-bound
-```
-
-For tall-skinny GEMM (M=4096, N=1, K=4096, fp16):
-```
-AI = 2 * 4096 * 1 * 4096 / ((4096*4096 + 4096 + 4096) * 2) ≈ 1 FLOP/byte → memory-bound
+tir = matmul.get_tir(M, N, K, block_M=128, block_N=128, block_K=32)
+estimate = Analyzer.analysis(tir, CUDA("cuda"))
+print(estimate.total_flops, estimate.total_global_bytes)
+print(estimate.estimated_time)
 ```
 
-## Interpreting do_bench Results
+Use the actual factory signature. `CUDA("cuda")` queries a visible device, so
+this particular model setup is not a GPU-free workflow even though analysis
+does not launch the kernel.
 
-The `cudagraph` backend eliminates kernel launch overhead, giving the lowest (most optimistic) latency. Use `"event"` for realistic numbers. The `cupti` backend uses torch.profiler internally for per-kernel breakdowns.
+The current analyzer recognizes FLOPs from `T.gemm` and global traffic from
+selected `T.copy` regions; direct loads/stores and elementwise arithmetic are
+not fully counted. Grid scaling covers x/y but not z, and compute models are
+available for only some capabilities. Treat missing peak values or incomplete
+coverage as model limitations. An estimate cannot diagnose actual scheduling,
+cache behavior, or runtime bottlenecks.
 
-### When Numbers Don't Make Sense
+Use compile-only/source inspection when the question is about emitted work,
+then validate the estimate against measurement. Source:
+[Analyzer docs](https://github.com/tile-ai/tilelang/blob/main/docs/tools/analyzer.md).
 
-- **TFLOPS exceeds GPU peak**: Check your FLOP formula. For GEMM it's `2*M*N*K`, not `M*N*K`.
-- **Latency is 0.0**: Problem too small, within measurement noise. Increase problem size.
-- **First run is much slower**: JIT compilation happens on first call. Ensure warmup is sufficient.
-- **High variance between runs**: Check that no other GPU workloads are running. Pin to a specific GPU with `CUDA_VISIBLE_DEVICES=0`.
+## Unstable or surprising measurements
 
-## ncu Command Cheat Sheet
-
-```bash
-# Quick summary
-ncu --target-processes all python script.py
-
-# Full analysis, save report
-ncu --set full -o report python script.py
-
-# Specific metrics only
-ncu --metrics sm__warps_active.avg.pct_of_peak_sustained_active \
-    --metrics l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum.per_second \
-    python script.py
-
-# Skip warmup kernels (profile only the Nth kernel)
-ncu --kernel-id ::N: python script.py
-
-# Profile specific kernel by name regex
-ncu --kernel-name "my_kernel" python script.py
-```
-
-## nsys Command Cheat Sheet
-
-```bash
-# Basic timeline
-nsys profile -o timeline python script.py
-
-# With CUDA API trace
-nsys profile --trace=cuda,nvtx -o timeline python script.py
-
-# Report summary
-nsys stats timeline.nsys-rep
-```
+- Startup in the trace: warm custom and reference paths, including backward
+  when measured. Exclude compilation and library initialization deliberately.
+- Missing device events: verify CUDA profiler support; do not substitute CPU
+  dispatch duration for device execution.
+- High variance: check competing work, measurement duration, synchronization,
+  and state changes. Repeat only enough to answer the comparison reliably.
+- Apparent speedup after changing a trace option: remeasure with the same
+  uninstrumented benchmark harness before claiming an improvement.

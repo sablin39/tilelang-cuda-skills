@@ -1,7 +1,24 @@
-.venv
-docs
-examples
+# Local environments and coding-suite state.
+/.venv/
+/.claude/
+/.agents/
+/.codex/
+/.cursor/
+
+# Task artifacts created when exercising the skill workflows from this repo.
+/docs/
+/examples/
+/tmp/
 **/*.log
-.claude
-.agents
-.cursor
+
+# Python caches and local test output.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Host filesystem metadata.
+.DS_Store

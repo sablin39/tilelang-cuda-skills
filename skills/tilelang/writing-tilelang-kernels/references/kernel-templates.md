@@ -1,6 +1,6 @@
 # TileLang Kernel Templates
 
-Complete, copy-paste-ready kernel templates for TileLang v0.1.9.
+Complete kernel templates using the PrimFunc-factory style.
 Each template includes imports, kernel definition, host code, validation, and profiling.
 
 ---
@@ -79,7 +79,7 @@ def softplus(M, N, block_M, block_N, dtype=T.float16, accum_dtype=T.float32):
             T.copy(X[by * block_M, bx * block_N], X_shared)
             for i, j in T.Parallel(block_M, block_N):
                 val = T.cast(X_shared[i, j], accum_dtype)
-                Y_local[i, j] = T.log(T.cast(1.0, accum_dtype) + T.exp(val))
+                Y_local[i, j] = T.max(val, T.cast(0.0, accum_dtype)) + T.log1p(T.exp(-T.abs(val)))
             T.copy(Y_local, Y[by * block_M, bx * block_N])
     return kernel
 
@@ -89,6 +89,7 @@ block_M, block_N = 64, 64
 
 # ---------- host code ----------
 x = torch.randn(M, N, dtype=torch.float16, device="cuda")
+x[0, :5] = torch.tensor([-100, -20, 0, 20, 100], dtype=x.dtype, device=x.device)
 kernel = softplus(M, N, block_M, block_N)
 y = kernel(x)
 
