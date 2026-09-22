@@ -34,6 +34,7 @@ SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILLS_SRC="$SUITE_ROOT/skills"
 KERNELWIKI_URL="https://github.com/mit-han-lab/KernelWiki.git"
 HMZ_PKG="hmz[all] @ git+https://github.com/humanfia/humanize.git"
+HMZ_URL="https://github.com/humanfia/humanize.git"
 GLOBAL_SKILLS="$HOME/.agents/skills"
 # Standalone (curl | bash) mode: the suite is fetched into a cache and the
 # skills symlinked from there, so reruns and git pulls update every CLI.
@@ -102,7 +103,8 @@ done
 # --- KernelWiki: locate, verify, repair --------------------------------------
 # A checkout is usable when its structure is present and its query script
 # answers (official smoke test first, --help as fallback). A checkout with no
-# readable commit, or one behind the remote, is removed and reinstalled.
+# readable commit, one behind the remote, or — for the suite's pinned
+# submodule — one off the recorded pin, is removed and reinstalled.
 
 kw_head() { git -C "$1" rev-parse HEAD 2>/dev/null || true; }
 kw_rev() { local h; h="$(kw_head "$1")"; echo "${h:-none}"; }
@@ -114,10 +116,20 @@ kw_usable() { # $1=checkout path
   python3 "$kw/scripts/query.py" --help >/dev/null 2>&1
 }
 
-kw_fresh() { # $1=checkout path; 0 when a commit exists and matches the remote
-  local kw="$1" local_head remote_head
+kw_fresh() { # $1=checkout path; 0 when a commit exists and is where it should be
+  local kw="$1" local_head remote_head pin
   local_head="$(kw_head "$kw")"
   [ -n "$local_head" ] || return 1
+  # The suite's submodule is pinned deliberately: it is fresh when it matches
+  # the superproject's recorded pin, not when it matches the remote.
+  if [ "$kw" = "$SUITE_ROOT/external/KernelWiki" ]; then
+    pin="$(git -C "$SUITE_ROOT" ls-tree HEAD -- external/KernelWiki 2>/dev/null | awk '{print $3}')"
+    if [ -n "$pin" ]; then
+      [ "$local_head" = "$pin" ] && return 0
+      warn "KernelWiki submodule is at $local_head but the suite pins $pin; reinitializing to the pin"
+      return 1
+    fi
+  fi
   remote_head="$(git ls-remote "$KERNELWIKI_URL" HEAD 2>/dev/null | cut -f1 || true)"
   if [ -z "$remote_head" ]; then
     warn "cannot reach $KERNELWIKI_URL; keeping KernelWiki at $local_head"
@@ -145,72 +157,113 @@ kw_repair() { # $1=checkout path
 }
 
 KW=""
-if [ "$scope" = global ]; then
-  KW="$GLOBAL_SKILLS/KernelWiki"
-  if [ -d "$KW" ]; then
-    if kw_usable "$KW" && kw_fresh "$KW"; then
-      echo "KernelWiki: $KW (rev $(kw_head "$KW")) — usable, up to date"
+ensure_kernelwiki() {
+  if [ "$scope" = global ]; then
+    KW="$GLOBAL_SKILLS/KernelWiki"
+    if [ -d "$KW" ]; then
+      if kw_usable "$KW" && kw_fresh "$KW"; then
+        echo "KernelWiki: $KW (rev $(kw_head "$KW")) — usable, up to date"
+      elif [ "$check_only" -eq 1 ]; then
+        echo "KernelWiki: $KW — present but corrupted or stale (rev $(kw_rev "$KW"))"
+      else
+        warn "KernelWiki at $KW has no/older commit ($(kw_rev "$KW")); reinstalling"
+        kw_repair "$KW" || { echo "ERROR: KernelWiki reinstall failed" >&2; exit 1; }
+      fi
     elif [ "$check_only" -eq 1 ]; then
-      echo "KernelWiki: $KW — present but corrupted or stale (rev $(kw_rev "$KW"))"
+      echo "KernelWiki: $KW — NOT installed"
     else
-      warn "KernelWiki at $KW has no/older commit ($(kw_rev "$KW")); reinstalling"
-      kw_repair "$KW" || { echo "ERROR: KernelWiki reinstall failed" >&2; exit 1; }
+      echo "Installing KernelWiki per official instructions (clone root = skill dir) ..."
+      mkdir -p "$GLOBAL_SKILLS"
+      kw_clone "$KW"
+      kw_usable "$KW" || { echo "ERROR: fresh KernelWiki clone failed the smoke test" >&2; exit 1; }
     fi
-  elif [ "$check_only" -eq 1 ]; then
-    echo "KernelWiki: $KW — NOT installed"
   else
-    echo "Installing KernelWiki per official instructions (clone root = skill dir) ..."
-    mkdir -p "$GLOBAL_SKILLS"
-    kw_clone "$KW"
-    kw_usable "$KW" || { echo "ERROR: fresh KernelWiki clone failed the smoke test" >&2; exit 1; }
+    local candidate
+    for candidate in "$kw_arg" "${KERNELWIKI_ROOT:-}" "$SUITE_ROOT/external/KernelWiki" "$GLOBAL_SKILLS/KernelWiki" "$HOME/.local/share/KernelWiki"; do
+      [ -n "$candidate" ] && [ -d "$candidate" ] || continue
+      if kw_usable "$candidate" && kw_fresh "$candidate"; then
+        KW="$candidate"; break
+      fi
+      if [ "$check_only" -eq 1 ]; then
+        echo "KernelWiki: $candidate — corrupted or stale (rev $(kw_rev "$candidate")), would reinstall"
+        continue
+      fi
+      warn "KernelWiki at $candidate has no/older commit ($(kw_rev "$candidate")); reinstalling"
+      if kw_repair "$candidate"; then
+        KW="$candidate"; break
+      fi
+    done
+    if [ -z "$KW" ] && [ "$check_only" -eq 0 ]; then
+      if git -C "$SUITE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git -C "$SUITE_ROOT" submodule update --init -- external/KernelWiki
+        kw_usable "$SUITE_ROOT/external/KernelWiki" && KW="$SUITE_ROOT/external/KernelWiki"
+      fi
+      [ -z "$KW" ] && { kw_clone "$HOME/.local/share/KernelWiki"; kw_usable "$HOME/.local/share/KernelWiki" && KW="$HOME/.local/share/KernelWiki"; }
+    fi
+    [ -z "$KW" ] && [ "$check_only" -eq 0 ] && { echo "ERROR: no usable KernelWiki checkout could be established" >&2; exit 1; }
+    [ -n "$KW" ] && echo "KernelWiki: $KW (rev $(kw_head "$KW")) — usable"
   fi
-else
-  for candidate in "$kw_arg" "${KERNELWIKI_ROOT:-}" "$SUITE_ROOT/external/KernelWiki" "$GLOBAL_SKILLS/KernelWiki" "$HOME/.local/share/KernelWiki"; do
-    [ -n "$candidate" ] && [ -d "$candidate" ] || continue
-    if kw_usable "$candidate" && kw_fresh "$candidate"; then
-      KW="$candidate"; break
-    fi
-    if [ "$check_only" -eq 1 ]; then
-      echo "KernelWiki: $candidate — corrupted or stale (rev $(kw_rev "$candidate")), would reinstall"
-      continue
-    fi
-    warn "KernelWiki at $candidate has no/older commit ($(kw_rev "$candidate")); reinstalling"
-    if kw_repair "$candidate"; then
-      KW="$candidate"; break
-    fi
-  done
-  if [ -z "$KW" ] && [ "$check_only" -eq 0 ]; then
-    if git -C "$SUITE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      git -C "$SUITE_ROOT" submodule update --init -- external/KernelWiki
-      kw_usable "$SUITE_ROOT/external/KernelWiki" && KW="$SUITE_ROOT/external/KernelWiki"
-    fi
-    [ -z "$KW" ] && { kw_clone "$HOME/.local/share/KernelWiki"; kw_usable "$HOME/.local/share/KernelWiki" && KW="$HOME/.local/share/KernelWiki"; }
-  fi
-  [ -z "$KW" ] && [ "$check_only" -eq 0 ] && { echo "ERROR: no usable KernelWiki checkout could be established" >&2; exit 1; }
-  [ -n "$KW" ] && echo "KernelWiki: $KW (rev $(kw_head "$KW")) — usable"
-fi
+}
 
 # --- humanize (hmz) orchestrator ---------------------------------------------
+# Same contract as KernelWiki: broken (no version) or older than the remote is
+# reinstalled; current is left alone. Every case prints its status. The
+# installed revision is the git commit recorded in uv's direct_url.json; if it
+# cannot be read, hmz is treated as broken and reinstalled, which also heals
+# non-uv installs into a revision-readable one.
 
-hmz_ok() { hmz --version >/dev/null 2>&1 || hmz --help >/dev/null 2>&1; }
+hmz_usable() { hmz --version >/dev/null 2>&1 || hmz --help >/dev/null 2>&1; }
 
-if [ "$with_hmz" -eq 1 ]; then
-  if command -v hmz >/dev/null 2>&1 && hmz_ok; then
-    echo "hmz: $(command -v hmz) — already installed"
-  elif [ "$check_only" -eq 1 ]; then
-    if command -v hmz >/dev/null 2>&1; then echo "hmz: present but NOT working (corrupted)"
-    else echo "hmz: NOT installed"; fi
-  else
-    if command -v hmz >/dev/null 2>&1; then
-      warn "hmz at $(command -v hmz) does not run; reinstalling"
-      uv tool install --force --index-url "$pypi_mirror" "$HMZ_PKG"
-    else
-      echo "Installing hmz with uv (index: $pypi_mirror) ..."
-      uv tool install --index-url "$pypi_mirror" "$HMZ_PKG"
-    fi
-    command -v hmz >/dev/null 2>&1 || warn "hmz installed but not on PATH; run: uv tool update-shell"
+hmz_head() {
+  local json
+  command -v uv >/dev/null 2>&1 || return 0
+  for json in "$(uv tool dir 2>/dev/null)"/hmz/lib/python3.*/site-packages/hmz-*.dist-info/direct_url.json; do
+    [ -f "$json" ] || continue
+    sed -n 's/.*"commit_id": *"\([0-9a-f]\{7,\}\)".*/\1/p' "$json"
+    return 0
+  done
+}
+
+hmz_rev() { local h; h="$(hmz_head)"; echo "${h:-unknown}"; }
+
+hmz_fresh() { # 0 when a revision is readable and matches the remote
+  local local_head remote_head
+  local_head="$(hmz_head)"
+  [ -n "$local_head" ] || return 1
+  remote_head="$(git ls-remote "$HMZ_URL" HEAD 2>/dev/null | cut -f1 || true)"
+  if [ -z "$remote_head" ]; then
+    warn "cannot reach $HMZ_URL; keeping hmz at $local_head"
+    return 0
   fi
-fi
+  [ "$local_head" = "$remote_head" ]
+}
+
+hmz_install() {
+  uv tool install --force --index-url "$pypi_mirror" "$HMZ_PKG"
+  command -v hmz >/dev/null 2>&1 || warn "hmz installed but not on PATH; run: uv tool update-shell"
+  hmz_usable || warn "hmz still does not run after install"
+}
+
+ensure_hmz() {
+  if ! command -v hmz >/dev/null 2>&1; then
+    if [ "$check_only" -eq 1 ]; then echo "hmz: NOT installed"; return 0; fi
+    echo "Installing hmz with uv (index: $pypi_mirror) ..."
+    hmz_install
+  elif ! hmz_usable; then
+    if [ "$check_only" -eq 1 ]; then echo "hmz: present but broken (cannot read version); would reinstall"; return 0; fi
+    warn "hmz at $(command -v hmz) does not run; reinstalling"
+    hmz_install
+  elif hmz_fresh; then
+    echo "hmz: $(command -v hmz) (rev $(hmz_rev)) — up to date"
+  else
+    if [ "$check_only" -eq 1 ]; then echo "hmz: older or unreadable revision ($(hmz_rev)); would reinstall"; return 0; fi
+    warn "hmz is an older or unreadable revision ($(hmz_rev)); reinstalling"
+    hmz_install
+  fi
+}
+
+ensure_kernelwiki
+[ "$with_hmz" -eq 1 ] && ensure_hmz
 
 # --- Discover skills: dirs containing SKILL.md, skipping nested duplicates ---
 
