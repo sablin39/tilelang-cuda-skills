@@ -5,7 +5,7 @@ TileLang and CUDA programs. The workflows focus on programming models and
 evidence from source, lowering, tests, and profilers.
 
 Start with [tilelang-optimization-loop](skills/tilelang-optimization-loop/SKILL.md)
-for an iterative TileLang task. It adapts KDA's contract, draft, executable plan,
+for an iterative TileLang task. It adapts [KDA](https://github.com/NVlabs/kda)'s contract, draft, executable plan,
 candidate, validation, measurement, and promotion cycle to TileLang lowering.
 Keep the plan and candidate history in the task workspace. Analyze the supplied
 PyTorch baseline through `torch.compile` graphs/generated code and profiling,
@@ -37,11 +37,21 @@ separate installation rather than a default suite dependency.
 
 [scripts/install-skills.sh](scripts/install-skills.sh) installs the skills for
 Kimi Code, Claude Code, and Codex, verifies KernelWiki, and sets up the
-[humanize](https://github.com/humanfia/humanize) orchestrator (`hmz`) that can
+[humanize2](https://github.com/humanfia/humanize) orchestrator (`hmz`) that can
 drive all three CLIs in one reviewed workflow.
 
-Global install — canonical location `~/.agents/skills`, mirrored with symlinks
-into `~/.claude/skills` and `~/.codex/skills`:
+Quick install, no clone needed — the script fetches the suite into
+`~/.local/share/tilelang-cuda-skills` and symlinks from there:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sablin39/tilelang-cuda-skills/main/scripts/install-skills.sh | bash -s -- --scope global
+```
+
+Rerunning the same command updates the cached suite and every installed CLI at
+once. Override the source with `$SUITE_URL`, `$SUITE_REF`, and `$SUITE_CACHE`.
+
+Global install from a checkout — canonical location `~/.agents/skills`,
+mirrored with symlinks into `~/.claude/skills` and `~/.codex/skills`:
 
 ```bash
 ./scripts/install-skills.sh --scope global --target all
@@ -75,6 +85,45 @@ the script stops immediately without it) with dependencies resolved through
 CLIs is not on `PATH`. Network access, proxy variables included, is inherited
 from the caller's environment — set or unset `ALL_PROXY`/`all_proxy` before
 running as your network requires.
+
+## A short guide to hmz
+
+`hmz` runs *flows* — Python loops that drive one or more agent CLIs — using the
+CLI you are already logged into; it holds no API keys itself.
+
+Run a loop. Open the TUI with `hmz`, type `$ralph_loop Fix the bug in
+kernel.py`, and answer `/flow` once: which flow, and which agent as
+`cli/model:effort` (the models offered are the ones your account may name, asked
+of the CLI itself). Or headless:
+
+```bash
+hmz exec -f ralph_loop -a kimi/kimi-code/k3:high "Fix the bug in kernel.py"
+```
+
+`ralph_loop` re-gives the same task in a fresh conversation each round, so every
+round restarts from the task and the repository — keep the plan and candidate
+history in files, as the optimization-loop skill prescribes. It does not stop
+on its own; every round is logged, so stopping loses nothing.
+
+Steer and stop. While a turn runs, just type a line — it goes *into* the
+running turn (Kimi Code, Claude Code, and Codex all accept mid-turn input);
+with no turn open the line is held for the next one, never dropped. Stop with
+**ctrl+c twice** in the TUI (once for `hmz exec`) or `/stop`; `/resume` picks
+the run up where it stopped, and `/epics` lists past runs.
+
+Review with all three CLIs. A custom flow in `~/.humanize/flows/<name>/`
+(global) or `<task>/.humanize/flows/<name>/` (project) can assign roles across
+model families — e.g. Kimi implements a candidate, Claude reviews the evidence
+chain, Codex re-runs the exact validation and benchmark commands — driven by
+one `-a` per CLI:
+
+```bash
+hmz exec -f reviewed_opt_loop -a kimi/kimi-code/k3:high \
+  -a claude/claude-opus-4-8:high -a codex/gpt-5.6-sol:high "Optimize per docs/plan.md"
+```
+
+See the [humanize user guide](https://github.com/humanfia/humanize/tree/main/docs)
+for flows, steering, permissions, and allowances.
 
 ## Initialize KernelWiki manually
 

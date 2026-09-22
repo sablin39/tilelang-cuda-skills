@@ -11,6 +11,12 @@
 # the files instead. Project scope installs into the current working directory;
 # run it from the task project's root.
 #
+# The script also runs standalone, fetched without cloning the suite:
+#   curl -fsSL https://raw.githubusercontent.com/sablin39/tilelang-cuda-skills/main/scripts/install-skills.sh | bash -s -- --scope global
+# It then clones the suite into $SUITE_CACHE (default ~/.local/share/
+# tilelang-cuda-skills) and symlinks from there; reruns update the cache.
+# Override with $SUITE_URL / $SUITE_REF / $SUITE_CACHE.
+#
 # Global scope uses ~/.agents/skills as the canonical location (the most widely
 # recognized skills convention) and mirrors it with symlinks from ~/.claude/skills
 # and ~/.codex/skills. KernelWiki is then installed following its official
@@ -29,6 +35,11 @@ SKILLS_SRC="$SUITE_ROOT/skills"
 KERNELWIKI_URL="https://github.com/mit-han-lab/KernelWiki.git"
 HMZ_PKG="hmz[all] @ git+https://github.com/humanfia/humanize.git"
 GLOBAL_SKILLS="$HOME/.agents/skills"
+# Standalone (curl | bash) mode: the suite is fetched into a cache and the
+# skills symlinked from there, so reruns and git pulls update every CLI.
+SUITE_URL="${SUITE_URL:-https://github.com/sablin39/tilelang-cuda-skills.git}"
+SUITE_REF="${SUITE_REF:-main}"
+SUITE_CACHE="${SUITE_CACHE:-$HOME/.local/share/tilelang-cuda-skills}"
 
 scope=project
 target=all
@@ -47,7 +58,7 @@ while [ $# -gt 0 ]; do
     --pypi-mirror) pypi_mirror="$2"; shift 2 ;;
     --no-hmz)     with_hmz=0; shift ;;
     --check-only) check_only=1; shift ;;
-    -h|--help)    sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,29p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -55,6 +66,23 @@ done
 case "$scope" in project|global) ;; *) echo "--scope must be project or global" >&2; exit 2 ;; esac
 
 warn() { echo "WARNING: $*" >&2; }
+
+# --- Locate the suite ----------------------------------------------------------
+# When the script runs standalone (curl | bash, or a lone download), the skills
+# are not beside it; clone or update a cached checkout and install from there.
+if [ ! -d "$SKILLS_SRC" ]; then
+  SUITE_ROOT="$SUITE_CACHE"
+  SKILLS_SRC="$SUITE_CACHE/skills"
+  if [ -d "$SUITE_CACHE/.git" ]; then
+    echo "Updating cached suite at $SUITE_CACHE ..."
+    git -C "$SUITE_CACHE" fetch --depth 1 origin "$SUITE_REF" \
+      && git -C "$SUITE_CACHE" reset --hard FETCH_HEAD \
+      || warn "could not update $SUITE_CACHE; installing from its current state"
+  else
+    echo "Fetching the skill suite into $SUITE_CACHE ..."
+    git clone --depth 1 --branch "$SUITE_REF" "$SUITE_URL" "$SUITE_CACHE"
+  fi
+fi
 
 # --- Requirements ------------------------------------------------------------
 
