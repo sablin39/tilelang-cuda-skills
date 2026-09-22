@@ -91,19 +91,24 @@ running as your network requires.
 `hmz` runs *flows* — Python loops that drive one or more agent CLIs — using the
 CLI you are already logged into; it holds no API keys itself.
 
-Run a loop. Open the TUI with `hmz`, type `$ralph_loop Fix the bug in
-kernel.py`, and answer `/flow` once: which flow, and which agent as
+Run a loop. Open the TUI with `hmz`, type `$flame_chase Fix the bug in
+kernel.py`, and answer `/flow` once: which flow, and its agents as
 `cli/model:effort` (the models offered are the ones your account may name, asked
 of the CLI itself). Or headless:
 
 ```bash
-hmz exec -f ralph_loop -a kimi/kimi-code/k3:high "Fix the bug in kernel.py"
+hmz exec -f flame_chase -a kimi/kimi-code/k3:high -a claude/glm-5.3:high "Fix the bug in kernel.py"
 ```
 
-`ralph_loop` re-gives the same task in a fresh conversation each round, so every
-round restarts from the task and the repository — keep the plan and candidate
-history in files, as the optimization-loop skill prescribes. It does not stop
-on its own; every round is logged, so stopping loses nothing.
+`flame_chase` alternates two implementers on the same tree — here Kimi Code's
+Kimi K3 and GLM-5.3 backed by Claude Code, one `-a` per agent in turn order.
+Each starts its turn from the repository rather than from a history: neither is
+told what the other said, so every round is worked by a model that did not write
+what it is looking at, and one model's blind spot never compounds. For a single
+agent instead, use `ralph_loop` with one `-a`. Either way, keep the plan and
+candidate history in files, as the optimization-loop skill prescribes. These
+loops do not stop on their own (a run's allowance — hours, tokens, or dollars —
+caps them); every round is logged, so stopping loses nothing.
 
 Steer and stop. While a turn runs, just type a line — it goes *into* the
 running turn (Kimi Code, Claude Code, and Codex all accept mid-turn input);
