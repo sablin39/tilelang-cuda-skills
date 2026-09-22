@@ -33,9 +33,52 @@ checking, and an interactive HIR viewer. Use it before or alongside TileLang
 when decisions span fusion, sharding, or memory-placement boundaries. It is a
 separate installation rather than a default suite dependency.
 
-## Initialize KernelWiki
+## Install the suite
 
-After cloning this suite, run from its root:
+[scripts/install-skills.sh](scripts/install-skills.sh) installs the skills for
+Kimi Code, Claude Code, and Codex, verifies KernelWiki, and sets up the
+[humanize](https://github.com/humanfia/humanize) orchestrator (`hmz`) that can
+drive all three CLIs in one reviewed workflow.
+
+Global install — canonical location `~/.agents/skills`, mirrored with symlinks
+into `~/.claude/skills` and `~/.codex/skills`:
+
+```bash
+./scripts/install-skills.sh --scope global --target all
+```
+
+Project-local install — run from the task project's root; installs into
+`./.agents/skills`, `./.claude/skills`, and `./.codex/skills`:
+
+```bash
+/path/to/suite/scripts/install-skills.sh --scope project --target all
+```
+
+Skills are symlinked by default, so a `git pull` of this suite updates every
+installed CLI at once; pass `--copy` for a snapshot. The script repairs what it
+finds: broken symlinks, pre-installed directories conflicting with symlink
+mode, a KernelWiki checkout with no readable commit or one behind the remote
+(removed and reinstalled), and an `hmz` that does not run (reinstalled with
+`--force`). Audit without changing anything via `--check-only`.
+
+KernelWiki is verified with its official smoke test
+(`scripts/query.py --tag nvfp4 --type kernel --compact`). In global scope it is
+installed per its official instructions — a standalone clone whose root is the
+skill directory — at `~/.agents/skills/KernelWiki`. In project scope the script
+prefers, in order: `--kernelwiki PATH`, `$KERNELWIKI_ROOT`, this suite's
+`external/KernelWiki` submodule, then `~/.agents/skills/KernelWiki`.
+
+Unless `--no-hmz` is given, `hmz` is installed with `uv` (a hard requirement;
+the script stops immediately without it) with dependencies resolved through
+`--pypi-mirror URL` (default `https://mirrors.aliyun.com/pypi/simple`, or set
+`$PYPI_MIRROR`). The script warns when any of the `kimi`, `claude`, or `codex`
+CLIs is not on `PATH`. Network access, proxy variables included, is inherited
+from the caller's environment — set or unset `ALL_PROXY`/`all_proxy` before
+running as your network requires.
+
+## Initialize KernelWiki manually
+
+Without the script, run from this suite's root:
 
 ```bash
 git submodule update --init -- external/KernelWiki
