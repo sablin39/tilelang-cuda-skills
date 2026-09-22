@@ -87,8 +87,8 @@ fi
 
 # --- Requirements ------------------------------------------------------------
 
-if [ "$with_hmz" -eq 1 ] && ! command -v hmz >/dev/null 2>&1 && ! command -v uv >/dev/null 2>&1; then
-  echo "ERROR: uv is required to install hmz but was not found on PATH. Stop." >&2
+if [ "$with_hmz" -eq 1 ] && ! command -v uv >/dev/null 2>&1; then
+  echo "ERROR: uv is required to check and install hmz but was not found on PATH. Stop." >&2
   exit 1
 fi
 
@@ -206,18 +206,28 @@ ensure_kernelwiki() {
 }
 
 # --- humanize (hmz) orchestrator ---------------------------------------------
-# Same contract as KernelWiki: broken (no version) or older than the remote is
-# reinstalled; current is left alone. Every case prints its status. The
-# installed revision is the git commit recorded in uv's direct_url.json; if it
-# cannot be read, hmz is treated as broken and reinstalled, which also heals
-# non-uv installs into a revision-readable one.
+# Same contract as KernelWiki: broken or older than the remote is reinstalled;
+# current is left alone. Every case prints its status. Presence and integrity
+# are uv's own call: the tool venv under `uv tool dir`, verified with
+# `uv pip check`, which validates the whole dependency closure and needs no
+# hmz on PATH. The installed revision is the git commit recorded in uv's
+# direct_url.json; if it cannot be read, hmz is treated as broken and
+# reinstalled, which also heals non-uv installs into a revision-readable one.
 
-hmz_usable() { hmz --version >/dev/null 2>&1 || hmz --help >/dev/null 2>&1; }
+hmz_venv() { echo "$(uv tool dir 2>/dev/null)/hmz"; }
+
+hmz_installed() { [ -d "$(hmz_venv)" ]; }
+
+hmz_usable() { # 0 when uv's integrity check passes on the tool venv
+  local venv
+  venv="$(hmz_venv)"
+  [ -x "$venv/bin/python" ] || return 1
+  uv pip check --python "$venv/bin/python" >/dev/null 2>&1
+}
 
 hmz_head() {
   local json
-  command -v uv >/dev/null 2>&1 || return 0
-  for json in "$(uv tool dir 2>/dev/null)"/hmz/lib/python3.*/site-packages/hmz-*.dist-info/direct_url.json; do
+  for json in "$(hmz_venv)"/lib/python3.*/site-packages/hmz-*.dist-info/direct_url.json; do
     [ -f "$json" ] || continue
     sed -n 's/.*"commit_id": *"\([0-9a-f]\{7,\}\)".*/\1/p' "$json"
     return 0
@@ -241,20 +251,20 @@ hmz_fresh() { # 0 when a revision is readable and matches the remote
 hmz_install() {
   uv tool install --force --index-url "$pypi_mirror" "$HMZ_PKG"
   command -v hmz >/dev/null 2>&1 || warn "hmz installed but not on PATH; run: uv tool update-shell"
-  hmz_usable || warn "hmz still does not run after install"
+  hmz_usable || warn "hmz still fails uv's integrity check after install"
 }
 
 ensure_hmz() {
-  if ! command -v hmz >/dev/null 2>&1; then
+  if ! hmz_installed; then
     if [ "$check_only" -eq 1 ]; then echo "hmz: NOT installed"; return 0; fi
     echo "Installing hmz with uv (index: $pypi_mirror) ..."
     hmz_install
   elif ! hmz_usable; then
-    if [ "$check_only" -eq 1 ]; then echo "hmz: present but broken (cannot read version); would reinstall"; return 0; fi
-    warn "hmz at $(command -v hmz) does not run; reinstalling"
+    if [ "$check_only" -eq 1 ]; then echo "hmz: present but failed uv's integrity check; would reinstall"; return 0; fi
+    warn "hmz failed uv's integrity check; reinstalling"
     hmz_install
   elif hmz_fresh; then
-    echo "hmz: $(command -v hmz) (rev $(hmz_rev)) — up to date"
+    echo "hmz: $(hmz_venv) (rev $(hmz_rev)) — up to date"
   else
     if [ "$check_only" -eq 1 ]; then echo "hmz: older or unreadable revision ($(hmz_rev)); would reinstall"; return 0; fi
     warn "hmz is an older or unreadable revision ($(hmz_rev)); reinstalling"
