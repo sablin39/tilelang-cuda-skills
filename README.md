@@ -89,26 +89,48 @@ running as your network requires.
 ## A short guide to hmz
 
 `hmz` runs *flows* — Python loops that drive one or more agent CLIs — using the
-CLI you are already logged into; it holds no API keys itself.
+CLI you are already logged into; it holds no API keys itself. Everything below
+is the whole of what you need from the hmz docs for this suite.
 
-Run a loop. Open the TUI with `hmz`, type `$flame_chase Fix the bug in
-kernel.py`, and answer `/flow` once: which flow, and its agents as
-`cli/model:effort` (the models offered are the ones your account may name, asked
-of the CLI itself). Or headless:
+Two ways to run anything: the TUI (`hmz`, then `$<flow> <task>` and answer
+`/flow` once), or headless (`hmz exec`, as below). Agents are named
+`cli/model:effort`, where `model` is the alias the CLI itself registers — Kimi
+Code's aliases are namespaced, so `kimi/kimi-code/k3:high` names the Kimi Code
+CLI running its `kimi-code/k3` alias (not a bare `k3`), and the 256k-context
+variant is a separate alias: `kimi/kimi-code/k3-256k:high`. The models offered
+in `/flow` are the ones your account may name, asked of the CLI itself.
+
+### Single agent: `ralph_loop`
 
 ```bash
-hmz exec -f flame_chase -a kimi/kimi-code/k3:high -a claude/glm-5.3:high "Fix the bug in kernel.py"
+hmz exec -f ralph_loop -a kimi/kimi-code/k3:high "Fix the bug in kernel.py"
 ```
 
-`flame_chase` alternates two implementers on the same tree — here Kimi Code's
-Kimi K3 and GLM-5.3 backed by Claude Code, one `-a` per agent in turn order.
-Each starts its turn from the repository rather than from a history: neither is
-told what the other said, so every round is worked by a model that did not write
-what it is looking at, and one model's blind spot never compounds. For a single
-agent instead, use `ralph_loop` with one `-a`. Either way, keep the plan and
-candidate history in files, as the optimization-loop skill prescribes. These
-loops do not stop on their own (a run's allowance — hours, tokens, or dollars —
-caps them); every round is logged, so stopping loses nothing.
+One agent gets the same task over and over, each round in a **fresh
+conversation** — it restarts from the task and the repository rather than from a
+context window full of its own earlier attempts. Simple, cheap, and the right
+default for one bounded experiment at a time.
+
+### Multiple agents: `flame_chase`
+
+```bash
+hmz exec -f flame_chase -a kimi/kimi-code/k3-256k:high -a claude/glm-5.3:high "Fix the bug in kernel.py"
+```
+
+Two implementers — here Kimi Code's Kimi K3 and GLM-5.3 backed by Claude Code,
+one `-a` per agent in turn order — **alternate turns on the same tree**. Neither
+is told what the other said; the repository is the only account of the last
+turn. The difference from `ralph_loop`: a loop over one agent compounds that
+model's blind spot, while alternation gives every round to a model that did not
+write what it is looking at — two models fail differently, so each round is also
+an implicit review of the last one. (The number of `-a` flags must match the
+flow: `ralph_loop` takes one, `flame_chase` takes two.)
+
+Either way: keep the plan and candidate history in files, as the
+optimization-loop skill prescribes, since no round remembers the last. Loops do
+not stop on their own — a run's **allowance** (hours, tokens, or dollars, set
+via `-c budget.yaml` or the budget row in `/flow`) caps them — and every round
+is logged, so stopping loses nothing.
 
 Steer and stop. While a turn runs, just type a line — it goes *into* the
 running turn (Kimi Code, Claude Code, and Codex all accept mid-turn input);
@@ -116,8 +138,8 @@ with no turn open the line is held for the next one, never dropped. Stop with
 **ctrl+c twice** in the TUI (once for `hmz exec`) or `/stop`; `/resume` picks
 the run up where it stopped, and `/epics` lists past runs.
 
-Review with all three CLIs. A custom flow in `~/.humanize/flows/<name>/`
-(global) or `<task>/.humanize/flows/<name>/` (project) can assign roles across
+Review with all three CLIs. A custom flow in `~/.hmz/flows/<name>/`
+(global) or `<task>/.hmz/flows/<name>/` (project) can assign roles across
 model families — e.g. Kimi implements a candidate, Claude reviews the evidence
 chain, Codex re-runs the exact validation and benchmark commands — driven by
 one `-a` per CLI:
@@ -126,6 +148,18 @@ one `-a` per CLI:
 hmz exec -f reviewed_opt_loop -a kimi/kimi-code/k3:high \
   -a claude/claude-opus-4-8:high -a codex/gpt-5.6-sol:high "Optimize per docs/plan.md"
 ```
+
+Where flows live. The classic loops — `chat`, `ralph_loop`, `stateful_ralph`,
+`continue_loop`, `goal`, `flame_chase`, `rlar` — ship inside the `hmz` package
+and need no setup. Everything else (`humanize1`'s idea/plan/rlcr phases,
+`flame_chasoid`, and other experiments) is a separately versioned release in the
+official flowverse: open `/flowverses` in the TUI and fetch, then install the
+release you want. hmz is published on PyPI as pre-releases, so
+`uv tool install 'hmz[all]>=0.1.0b1'` also works; this suite's installer tracks
+the git source instead so upgrades follow upstream `main`. Note hmz's state
+home is `~/.hmz` — runs, settings, and flowverses from the old `~/.humanize`
+layout are not carried over, so per-directory flow/agent setups are chosen
+once again on first use.
 
 See the [humanize user guide](https://github.com/humanfia/humanize/tree/main/docs)
 for flows, steering, permissions, and allowances.
