@@ -47,16 +47,28 @@ that reference. Keep the mathematical oracle independent of the candidate.
 
 When the task changes a multi-operation fusion boundary, logical sharding,
 topology, or high-level memory placement, or already uses TileFoundry, apply the
-[TileFoundry design workflow](../designing-with-tilefoundry/SKILL.md). Its
-authored HIR, evaluator, static cost report, and viewer can make the intended
-design reviewable before kernel implementation. When several design directions
-are on the table, author each as an HIR variant and diff the `analyze` reports
-to rank them before any kernel work. Record the target in SM capability terms
-(sm_90, sm_100, ...) so the evidence states which architecture features it
-relies on. Record these as modeled design
-evidence; the emitted TileLang lowering and measured GPU result remain separate
-acceptance gates. Do not introduce TileFoundry solely to tune an isolated,
-already-defined `PrimFunc`.
+[TileFoundry design workflow](../designing-with-tilefoundry/SKILL.md) between
+the contract and the plan:
+
+1. Author each design direction as an HIR variant (fusion boundaries, storage
+   placement, sharding) and diff the `analyze` reports to rank them before any
+   kernel work. Verified against 0.0.2: relative diffs transfer to measurement
+   — a 1.67× gmem-traffic diff predicted the fused-vs-split direction and the
+   `bound-by: memory` diagnosis, with the measured latency ratio landing at
+   1.3-1.4× — while absolute predicted nanoseconds do not transfer, being
+   priced at the named target's published rates rather than the attached GPU.
+2. Run `tilefoundry check` on a plain-PyTorch runtime twin against the HIR
+   evaluator as a pre-codegen semantic oracle, so rounding-chain and semantics
+   errors surface before a GPU kernel exists.
+3. Record the target in SM capability terms (sm_90, sm_100, ...) so the
+   evidence states which architecture features it relies on.
+
+Record these as modeled design evidence; the emitted TileLang lowering and
+measured GPU result remain separate acceptance gates. Do not introduce
+TileFoundry solely to tune an isolated, already-defined `PrimFunc`, and do not
+rely on TileFoundry's own `compile()` CUDA backend as a measured floor — in
+0.0.2 it cannot lower sharded HIR, its wheel lacks runtime headers, and its
+generated code is demo quality.
 
 ## 2. Write the draft, then an executable plan
 

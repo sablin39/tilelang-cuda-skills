@@ -1,5 +1,8 @@
 # Extra Python tools used by the skills; torch and tilelang are installed separately.
 # TileLang layout images and torch.profiler HTML memory timelines.
 matplotlib
-# IKET profiling needs this
+# Provides the external IKET profiler (python -m iket.cli.main) used by
+# profiling-tilelang-programs/references/iket-profiling.md. TileLang's docs name
+# the package but pin no supported version; run that reference's CLI probe in
+# the target interpreter before relying on trace collection.
 nvidia-cutlass-dsl

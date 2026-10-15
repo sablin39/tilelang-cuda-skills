@@ -24,3 +24,5 @@ htmlcov/
 # Host filesystem metadata.
 .DS_Store
 .env
+.humanize
+.hmz

@@ -1,6 +1,6 @@
 ---
 name: profiling-tilelang-programs
-description: Measure TileLang kernel and workflow performance, choose benchmark or timeline tools, and compare implementations fairly. Use for latency, throughput, profiler selection, and establishing optimization baselines.
+description: Measure TileLang kernel and workflow performance, choose benchmark or timeline tools, and compare implementations fairly. Use for latency, throughput, profiler selection, and establishing optimization baselines on TileLang-generated code; use the cuda skill for hand-written CUDA C++ sources.
 ---
 
 # Profiling TileLang Programs
@@ -72,6 +72,12 @@ stay outside the measurement.
 `do_bench` accepts `n_warmup` / `n_repeat` for iteration overrides; standalone
 `do_bench` uses `_n_warmup` / `_n_repeat` in the inspected version. Check the
 signature before supplying version-dependent keywords.
+
+Backend selection (v0.1.15): `event` (CUDA events, default), `cupti`,
+`cudagraph`, and `wall` — host wall-clock per sample including launch and
+synchronization overhead. Use `wall` when event timing is distorted (e.g.
+under MPS) or when the launch path is part of what you are measuring; keep
+kernel-only comparisons on `event` and never mix backends within one table.
 
 The current benchmark implementation flushes a cache buffer between samples.
 This is a measurement policy, not a requirement for every workload. Compare

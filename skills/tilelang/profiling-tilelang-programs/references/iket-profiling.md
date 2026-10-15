@@ -34,11 +34,17 @@ change. If the user declines, continue with generated-source inspection,
 TileLang timing, Nsight, or compiler-lifetime analysis as appropriate.
 
 The reviewed TileLang documentation names the external package and CLI but does
-not specify a distribution URL or a supported IKET version. Do not assume that
-an unrelated package named `iket` from a package index is the profiler. Ask for
-the project's intended IKET source/version, or follow installation instructions
-already present in the user's environment, before proposing an exact install
-command. After installation, rerun the CLI probe above.
+not specify a distribution URL or a supported IKET version. In the reviewed
+`qla` environment, `import iket` resolves from the `nvidia-cutlass-dsl` package,
+which ships `iket.cli.main` and a `profiler/` directory; this suite's
+`requirements.txt` carries that package on this basis. It remains
+version-unpinned, so treat the CLI probe above as the acceptance check in
+whichever interpreter will run the target program, and do not assume that an
+unrelated package named `iket` from a package index is the profiler. If the
+probe fails, ask for the project's intended IKET source/version, or follow
+installation instructions already present in the user's environment, before
+proposing an exact install command. After installation, rerun the CLI probe
+above.
 
 IKET is a CUDA tool rather than a TileLang language namespace:
 

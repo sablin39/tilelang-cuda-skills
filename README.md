@@ -5,7 +5,7 @@ TileLang and CUDA programs. The workflows focus on programming models and
 evidence from source, lowering, tests, and profilers.
 
 Start with [tilelang-optimization-loop](skills/tilelang-optimization-loop/SKILL.md)
-for an iterative TileLang task. It adapts [KDA](https://github.com/NVlabs/kda)'s contract, draft, executable plan,
+for an iterative TileLang task. It adapts [KDA](https://github.com/mit-han-lab/kernel-design-agents)'s (mirrored as [NVlabs/kda](https://github.com/NVlabs/kda)) contract, draft, executable plan,
 candidate, validation, measurement, and promotion cycle to TileLang lowering.
 Keep the plan and candidate history in the task workspace. Analyze the supplied
 PyTorch baseline through `torch.compile` graphs/generated code and profiling,
@@ -178,6 +178,21 @@ reproducible tasks; update the pin deliberately when adopting upstream changes.
 Query scripts work without extra pip dependencies. Keep the full suite checkout
 available when using its skills so their relative links resolve.
 
+## Initialize TileFoundry manually
+
+TileFoundry is vendored the same way at `external/TileFoundry`, but it also
+needs an editable install and its CUTLASS submodule (its CUDA backend resolves
+headers relative to the source checkout; the PyPI wheel ships none):
+
+```bash
+git submodule update --init -- external/TileFoundry
+git -C external/TileFoundry submodule update --init third_party/cutlass
+uv pip install --python .venv/bin/python -e external/TileFoundry cmake ninja
+```
+
+Bump the pin deliberately and re-verify the workflow at each new commit — the
+probes are in [designing-with-tilefoundry](skills/designing-with-tilefoundry/SKILL.md).
+
 For optional ncu-report-skill integration and Kernel Design Agents conventions,
 see [external tool integration](skills/tilelang-optimization-loop/references/external-tools.md).
 
@@ -199,12 +214,16 @@ when needed, validate against the reference, compare the relevant operation,
 and optimize from that evidence. Load details only for the current task.
 
 The workflows were reviewed against `../tilelang/docs` and the `qla` environment
-on 2026-09-11: TileLang `0.1.14+cuda.git021592f4` from an editable checkout,
-PyTorch `2.13.0+cu130`, and CUDA toolkit 13.0. Upstream docs and installed APIs
-can differ; verify the active version rather than assuming every copied
-snippet is current. The original templates were based on TileLang 0.1.9.
+on 2026-09-11 (TileLang `0.1.14+cuda.git021592f4`), and re-reviewed on 2026-10-08
+against TileLang `0.1.15+cuda.git29b4fdd2`, PyTorch `2.13.0+cu130`, and CUDA
+toolkit 13.0, with compile-and-run spot checks of the v0.1.15 surface
+(`T.gemm_blockscaled`, role-based auto warp specialization, eager compile-time
+iteration, `do_bench` wall backend). Upstream docs and installed APIs can
+differ; verify the active version rather than assuming every copied snippet is
+current. The original templates were based on TileLang 0.1.9.
 The buffer-lifetime and compiler-instrumentation APIs were rechecked against
-the same TileLang commit and bundled TVM `0.25.dev0` on 2026-09-15.
+the 0.1.14 commit and bundled TVM `0.25.dev0` on 2026-09-15; the bundled TVM
+remains `0.25.dev0` at 0.1.15.
 
 ## Extra Python dependencies
 

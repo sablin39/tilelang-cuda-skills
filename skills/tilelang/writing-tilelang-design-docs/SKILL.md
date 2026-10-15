@@ -1,6 +1,6 @@
 ---
 name: writing-tilelang-design-docs
-description: Write human-facing TileLang design documents for proposed or completed kernel implementations. Use when explaining an algorithm, execution mapping, memory flow, pipeline, tensor lifetimes, compiler evidence, tradeoffs, validation, or measured results to a reviewer.
+description: Write human-facing TileLang design documents for proposed or completed kernel implementations. Use when explaining an algorithm, execution mapping, memory flow, pipeline, tensor lifetimes, compiler evidence, tradeoffs, validation, or measured results to a reviewer. For machine-checked HIR modeling and static cost analysis use designing-with-tilefoundry.
 ---
 
 # Writing TileLang Design Documents

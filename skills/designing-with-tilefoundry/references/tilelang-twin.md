@@ -2,8 +2,9 @@
 
 A verified pattern for making a TileLang kernel the runtime twin of an authored
 TileFoundry Module, so `tilefoundry check` judges it against the HIR evaluator.
-Verified against tilefoundry 0.0.2 with tilelang 0.1.14, including exact
-(`equal`) agreement on an fp8 output.
+Verified against tilefoundry 0.0.2 with tilelang 0.1.14, and again against the
+vendored main checkout (`5f346a2`, 2026-10-15) with tilelang 0.1.15 — `equal`
+agreement on the fp8 output and `allclose` on the f32 scale, both times.
 
 The example twins the fused step from `tilefoundry tutorial optimize`: RMSNorm
 followed by per-block FP8 quantization. The authored module (`Fused`, in the
@@ -88,6 +89,11 @@ tilefoundry check twin_tilelang.py:FastTileLang --inputs random --weights random
   --out 'output[1]' --fn allclose --atol 1e-6 --rtol 1e-6 \
   --json artifacts/runtime-check.json
 ```
+
+For bf16 elementwise outputs whose only disagreement is reduction order, a
+single-ulp flip at a binade bottom needs `rtol >= 2**-7` to pass
+`torch.allclose`. The sharper predicate is `--fn ulp --max 1`, which admits a
+one-landing-point difference without widening tolerances everywhere else.
 
 ## What to copy and what to re-derive
 

@@ -116,6 +116,11 @@ directory when needed. `TILELANG_DISABLE_CACHE=1` disables kernel caching;
 `TILELANG_AUTO_TUNING_DISABLE_CACHE=1` disables autotune disk caching. A fresh
 process may still be needed to avoid in-process reuse during inspection.
 
+Since v0.1.15, cache artifact hash verification is always on
+(`TILELANG_CACHE_VERIFY_HASH` was removed), cached kernel parameters are stored
+as JSON rather than cloudpickle, and cache directories are published atomically;
+legacy caches rebuild automatically on first miss.
+
 For manual compilation sweeps, `JITImpl.par_compile` accepts dictionaries or
 tuples of factory arguments. Supply **all** required fixed dimensions along
 with the varying parameters, then benchmark each compiled result with the

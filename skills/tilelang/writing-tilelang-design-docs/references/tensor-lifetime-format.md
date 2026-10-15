@@ -93,7 +93,9 @@ the renderer derives it from buffer intervals and events.
 ## Command
 
 ```bash
-python scripts/render_tensor_lifetimes.py lifetimes.json -o lifetimes.svg
+# From the suite root, matching the invocation in the design-docs skill:
+python skills/tilelang/writing-tilelang-design-docs/scripts/render_tensor_lifetimes.py \
+  lifetimes.json -o lifetimes.svg
 ```
 
 The output uses a responsive SVG `viewBox`, tooltips, scope colors, access

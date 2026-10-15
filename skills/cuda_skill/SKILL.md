@@ -1,6 +1,6 @@
 ---
 name: cuda
-description: Draft, debug, and measure CUDA kernels and host launch workflows. Use for CUDA compilation, launch contracts, compute-sanitizer, Nsight timelines, focused kernel profiling, and generated-code inspection.
+description: Draft, debug, and measure native CUDA C++ kernels and host launch workflows. Use for nvcc compilation, launch contracts, compute-sanitizer, Nsight timelines, focused kernel profiling, and generated-code inspection of hand-written CUDA; for TileLang programs use the TileLang debugging/profiling skills instead.
 ---
 
 # CUDA Development Workflow
@@ -77,6 +77,15 @@ Form a hypothesis from the trace or source, change the relevant code, validate
 outputs, and repeat the same measurement. Keep configuration and results with
 the experiment. Architecture and instruction-level tuning are separate,
 optional follow-up work.
+
+## Versioned documentation snapshots
+
+[references/cuda-driver.md](references/cuda-driver.md),
+[references/cuda-runtime.md](references/cuda-runtime.md), and
+[references/ptx-isa.md](references/ptx-isa.md) index local snapshots of the
+CUDA 13.1 driver/runtime APIs and PTX ISA 9.1. They are newer than the reviewed
+CUDA 13.0 toolkit: confirm an API or instruction exists in the installed
+toolchain before relying on a snapshot-only entry.
 
 ## Completion evidence
 

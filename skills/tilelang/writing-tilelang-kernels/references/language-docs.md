@@ -2,8 +2,9 @@
 
 Use this guide when choosing an invocation style or diagnosing the boundary
 between Python, TIR, compilation, and a kernel launch. It follows the local
-TileLang docs reviewed with the `qla` 0.1.14 checkout. Inspect installed APIs
-when targeting another version.
+TileLang docs reviewed with the `qla` 0.1.14 checkout and re-checked against
+0.1.15 (git `29b4fdd2`) on 2026-10-08. Inspect installed APIs when targeting
+another version.
 
 ## PrimFunc factory: specialize, compile, launch
 
@@ -100,6 +101,13 @@ and framework operations belong outside the kernel body. Use `@T.macro` for
 reusable inlined DSL blocks. Use `T.print` / `T.device_assert` for diagnostics.
 Check compatibility before translating arbitrary Python containers or builtins.
 
+The eager frontend evaluates ordinary Python iteration at compile time: loops
+over lists, tuples, `enumerate`, and `zip`, plus list/dict/set comprehensions
+and generator expressions (since v0.1.15; loop `else` clauses are rejected).
+Iteration bounds and filters must be evaluable during IR construction, and
+comprehension variables do not leak into the enclosing scope. Runtime-valued
+bounds still belong to the TIR loop constructs above.
+
 ## Targets and execution backends
 
 `target` selects code generation; `execution_backend` selects the compilation/
@@ -112,6 +120,8 @@ The default target can come from `TILELANG_DEFAULT_TARGET`; otherwise it is
 automatic. Record an override with the experiment. Source editing during a
 lowering trace needs a backend that recompiles source, such as `nvrtc` or
 `cython`; a precompiled `tvm_ffi` binary is not changed by editing a source dump.
+Non-CUDA backends exist upstream (ROCm; Ascend NPU since v0.1.15 with
+`target="ascend"`); this guide's contracts are reviewed for CUDA only.
 
 ## Inspect one boundary at a time
 

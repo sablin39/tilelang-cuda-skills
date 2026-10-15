@@ -43,6 +43,23 @@ dependency rules. Legacy arrays that count replayable binds can be accepted
 for compatibility; omit those slots in new code. Inspect `TL_LOWER_TRACE` to
 understand which statements the pass actually schedules.
 
+## Automatic warp specialization (v0.1.15)
+
+An opt-in role-based scheduler partitions producer/consumer warps
+automatically instead of relying on the inferred pipeline alone:
+
+```python
+@tilelang.jit(pass_configs={
+    tilelang.PassConfigKey.TL_ENABLE_AUTO_WARP_SPECIALIZATION: "role_based",
+})
+```
+
+It targets persistent-style kernels (the pass was formerly `AutoSchedule`;
+worked examples live in `examples/aws/gemm.py` and
+`examples/aws/flash_attention.py` in a matching checkout). Treat it as a
+candidate configuration, not a default: validate outputs and measure against
+the inferred pipeline at the same shape before promoting it.
+
 ## Copy and layout contracts
 
 `T.copy` has synchronous semantics; its lowering can choose different transfer

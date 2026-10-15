@@ -33,6 +33,7 @@ integration.
 | `T.copy(src, dst)` | Tile copy with synchronous semantics; inspect inferred extents and tails |
 | `T.clear(buf)`, `T.fill(buf, value)` | Initialize a buffer; clear accumulators before accumulation |
 | `T.gemm(A, B, C, transpose_A=..., transpose_B=...)` | Accumulate a tile product into C; check reduction dimensions after transposes |
+| `T.gemm_blockscaled(A, B, C, SFA, SFB, ...)` | Block-scaled tile product with per-block scale factors (MXFP8/FP4-class dtypes, v0.1.15); requires `k_start` and `sf_a_granularity_k` |
 | `T.reduce_sum(src, dst, dim=...)` | Reduce along an axis; `reduce_max` and `reduce_min` use different identities |
 | `T.Parallel(dim0, dim1, ...)` | Distribute elementwise iterations across threads |
 | `T.serial(start, stop)`, `T.unroll(start, stop)` | Sequential or explicitly unrolled iteration |

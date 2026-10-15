@@ -61,11 +61,17 @@ Add `SourceCounters` or PM sampling when they answer the current question and
 are supported. Keep ordinary latency comparisons in the original benchmark.
 
 Set `NCU_REPORT_SKILL_ROOT` to its checkout and `NCU_PYTHON_DIR` to the installed
-Nsight Compute `extras/python` directory containing `ncu_report.py`:
+Nsight Compute `extras/python` directory containing `ncu_report.py`. The
+ncu-report-skill checkout is a proposed pinned dependency and is **not** present
+in this suite, so guard on it and fail the stage explicitly when it is absent:
 
 ```bash
 # Verified location on the reviewed machine; discover it on other systems.
 NCU_PYTHON_DIR=/opt/nvidia/nsight-compute/2025.3.1/extras/python
+if [ ! -f "$NCU_REPORT_SKILL_ROOT/helpers/analyze_reports.py" ]; then
+  echo "ncu-report-skill checkout missing at '$NCU_REPORT_SKILL_ROOT'; skipping report analysis" >&2
+  exit 1
+fi
 env PYTHONPATH="$NCU_PYTHON_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   python "$NCU_REPORT_SKILL_ROOT/helpers/analyze_reports.py" \
   --run-dir "$PROFILE_RUN_DIR" --report "$NCU_REPORT_PATH" --tag baseline
@@ -170,6 +176,57 @@ viewer fetched and verified its pinned Graphviz-WASM and D3 assets. After eight
 NVIDIA L20Z devices became visible, the targeted 34-test subset passed and a
 synchronized PyTorch FP16 CUDA matrix multiplication completed on device 0. No
 TileFoundry-generated CUDA kernel was compiled or timed in this review.
+
+A full cold start was exercised on 2026-10-08 (tilefoundry 0.0.2, tilelang
+0.1.15, L20Z): a fused-vs-split residual-add+RMSNorm pair was taken from a
+PyTorch reference through authored HIR variants, `analyze` diffs, pure-torch
+and TileLang runtime-twin checks, and `do_bench` measurement. The static
+traffic diff (1.67×) predicted the direction and memory-bound diagnosis; the
+measured latency ratio was 1.31× (torch.compile) and 1.42× (TileLang), and the
+fused TileLang kernel reached 1.55× the compiled baseline. The `compile()`
+HIR→CUDA backend was found unusable as a measured floor in 0.0.2 (no MeshScope
+lowering, runtime headers missing from the wheel, demo-quality codegen).
+
+Upstream main was re-checked on the same day ([`f71ed0e`](https://github.com/tile-ai/TileFoundry/tree/f71ed0e7789648ce408af623383b8f039ed90605),
+0.0.3.dev28): the new `schedule candidates/facts/finalize` surface lowers
+fully-scheduled HIR to verified TIR and handwritten TIR compiles to real CUDA,
+but lowered-HIR compile remains broken (two emitter gaps), the wheel still
+ships no runtime headers, and `analyze`'s report format changed. The skills
+stay pinned to 0.0.2 pending the next release tag; evidence lives in the task
+workspace's `artifacts/upstream-main/`.
+
+Re-checked again at [`5f346a2`](https://github.com/tile-ai/TileFoundry/tree/5f346a285158b47e92d29d2c19e76b5dc3ff48a6)
+(0.0.3.dev38, 2026-10-15) with an end-to-end `compile()` drive. Mesh-capable
+lowering now works (the f71ed0e-era blocker is gone; upstream suite 474/474,
+including with four small local emitter patches applied). Still open: the
+wheel ships no `runtime.h`; `T.copy_async_tensor` has no emitter by design, so
+the tutorial's "optimal" GEMM schedule cannot compile; same-day commit
+`a64ec82` introduced four emitter bugs (slice-coordinate rendering, MeshCoord
+coordinates, missing `Cast` emitter, `Fill` on kernel params — all patched and
+validated locally) and removed the `rmem_layout=` attribute, breaking the
+two-day-old flagship `examples/qwen3_8_27b_prefill-tilelang` artifacts on main
+(pin that example to `f8fd71e`). With the patches plus a hand-added `T.reduce`
+smem workspace, a scheduled RMSNorm compiles but the binary reads smem out of
+bounds — the runtime reduce dispatch mis-counts `warps_per_group` for the
+composed cta×thread mesh that multi-CTA finalize always produces. The Qwen
+example itself confirms the supported integration: TileFoundry for
+HIR/check/analyze/schedule/finalize, TileLang kernels implementing the
+finalized TIR — `compile()` unused.
+
+Later on 2026-10-15 the suite vendored TileFoundry as the
+`external/TileFoundry` submodule, pinned at `5f346a2`, and installed it
+editable into the suite `.venv` (with `cmake`/`ninja` and the
+`third_party/cutlass` submodule initialized). That resolves the header problem
+for this suite — op-level `compile()` builds and runs pass on the suite GPU —
+and the `designing-with-tilefoundry` skill was re-verified against the pin
+(CLI surface, tutorial extraction, described models, targets, predicates, DOT
+and Viewer imports, the TileLang runtime-twin check PASS with tilelang
+0.1.15). Two 0.0.2-era DSL notes were dropped as obsolete (`tf.local` is
+removed; the `ShardMesh` verbose shard form no longer imports), and the
+shared-weight shard gap persists in a new form with the scheduled-copy idiom
+as its answer. The pin policy: bump the submodule deliberately, re-run the
+skill's probes at each new pin, and never track main blindly — upstream broke
+its own flagship example within two days.
 
 Preserve upstream notices and artifact provenance when incorporating files.
 KernelWiki is included; the NCU dependency and task-harness layout above remain

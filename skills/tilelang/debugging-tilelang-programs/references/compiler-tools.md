@@ -204,3 +204,9 @@ Upstream sources: [compile-only](https://github.com/tile-ai/tilelang/blob/main/d
 [lower trace](https://github.com/tile-ai/tilelang/blob/main/docs/tools/lower_trace.md),
 [layout visualization](https://github.com/tile-ai/tilelang/blob/main/docs/tools/layout_visualization.md),
 and [AutoDD](https://github.com/tile-ai/tilelang/blob/main/docs/tools/autodd.md).
+
+When a task crosses from debugging a kernel into editing TileLang's own C++
+passes or TIRX/layout internals, the upstream checkout ships contributor skills
+under `.agents/skills/` (e.g. `tilelang-tvm-ir` for TIRX handle conventions,
+`tilelang-layout` for layout inference and its cost model). They are
+compiler-developer oriented; prefer them over reverse-engineering pass code.
