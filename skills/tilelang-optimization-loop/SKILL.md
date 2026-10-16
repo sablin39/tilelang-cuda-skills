@@ -64,11 +64,17 @@ the contract and the plan:
    evidence states which architecture features it relies on.
 
 Record these as modeled design evidence; the emitted TileLang lowering and
-measured GPU result remain separate acceptance gates. Do not introduce
+measured GPU result remain separate acceptance gates. Rank HIR variants by
+logical traffic/FLOP diffs, capacity advisories, and roofline floors — never
+by `analyze --performance` predicted nanoseconds: its timeline bills
+`insert_slice`/`tf.zeros` at whole-tensor-copy cost per update and cannot see
+mesh-lane under-fill, so it names the wrong winner in occupancy-gated regimes
+(verified 2026-10-16 on a chunk-sequential scan, 40 of 132 lanes, pin
+`5f346a2`). Do not introduce
 TileFoundry solely to tune an isolated, already-defined `PrimFunc`, and do not
-rely on TileFoundry's own `compile()` CUDA backend as a measured floor — in
-0.0.2 it cannot lower sharded HIR, its wheel lacks runtime headers, and its
-generated code is demo quality.
+rely on TileFoundry's own `compile()` CUDA backend as a measured floor — it
+remains experimental (emitter gaps for scheduled programs); see the
+TileFoundry design skill for its status at the active pin.
 
 ## 2. Write the draft, then an executable plan
 

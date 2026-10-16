@@ -76,10 +76,10 @@ tilefoundry schedule --help
 
 Use `tilefoundry models NAME --source` when a shipped model is close to the
 task. Treat it as a reference for the active release and adapt it to the actual
-operation, target, shapes, and topology. Main ships seven described models
-(DeepSeek V4 Flash, Gemma2 2B, MiniCPM3 4B, Qwen2.5 1.5B, Qwen3 1.7B,
-Kimi Linear 48B A3B, Qwen3.5 35B A3B — verified at `5f346a2`); when the task's
-architecture matches one, its HIR is the fastest correct starting point.
+operation, target, shapes, and topology. The registry contents change between
+releases: list what the installed release ships with `tilefoundry models` at
+the pinned checkout instead of assuming a particular architecture is there,
+and when one matches the task, its HIR is the fastest correct starting point.
 
 Author a `@module` with its target, topology hierarchy, entry function, tensor
 types, meshes, sharding, and storage placement. Let the parser/type checker
@@ -153,11 +153,39 @@ MMA variant and async copy engines), `instruction.compute_dtypes`, and storage
 capacities per topology owner. Reason and record in these SM capability
 terms — sm_90, sm_100, sm_120 — rather than individual product names, so the
 design evidence transfers across products of one generation and states exactly
-which features it relies on. Architecture coverage depends on the checkout
-(the pinned commit ships the sm_90 and sm_100 CUDA product documents
-`nvidia.h200_sxm` / `nvidia.b200_sxm`, a CPU target, and an Apple AMX target —
-verified 2026-10-15); a missing architecture is added explicitly with
-`tilefoundry target add --document`, never assumed.
+which features it relies on. Architecture coverage depends on the checkout — enumerate it with
+`tilefoundry target list` at the active pin rather than assuming a product or
+architecture exists; a missing one is added explicitly with
+`tilefoundry target add`, never assumed.
+
+Registering a target for the attached GPU (recipe verified 2026-10-16 at the
+pinned commit):
+
+1. Read the device in SM terms: `tvm.target.Target.from_device("cuda")` (or
+   torch's `get_device_capability`) for `arch=sm_*`; SM count and L2 capacity
+   from the runtime's device properties; max clocks from
+   `nvidia-smi -q -d CLOCK`.
+2. If `target list` already has a product on the same SM architecture,
+   topology-dependent results (wave counts, per-wave L2 advisories,
+   instruction facts) already transfer — only rates may differ. Clone that
+   product's device TOML (shipped under the package's `target/*/hardware/`)
+   as the starting document.
+3. Edit the rates: HBM bandwidth = max memory clock × 2 × bus width / 8 (bus
+   width = HBM stack count × 1024 bits) or the vendor sheet; compute
+   throughputs from SM count × clock — and if the product might have cut-down
+   tensor cores, measure the dense bf16 peak with one cuBLAS GEMM instead of
+   assuming the full die rate. Keep every fact's `origin`/`source`/`conditions`
+   honest: mark derived numbers with their derivation and measured ones with
+   the measurement.
+4. `tilefoundry target add --document your-device.toml` (add the architecture
+   document first if the SM generation itself is new). Registration persists
+   in `<sys.prefix>/share/tilefoundry/registry.toml`, digest-checked on
+   replay; `--registry PATH` overrides per invocation.
+5. Verify: name the new target in the HIR, re-run one `analyze --roofline`,
+   and check the floor scales by exactly the bandwidth ratio. With the
+   device's true HBM rate, a bandwidth-bound kernel's roofline floor should
+   land near its measured time (observed within ~4% on a kernel measured at
+   79% of DRAM peak, 2026-10-16).
 
 For what a capability means for kernel design — MMA shapes, async-copy
 mechanics, warp-specialization idioms under a given SM generation — query the
@@ -199,9 +227,11 @@ residual-add+RMSNorm, [4096,4096] bf16 on an L20Z): the 1.67× gmem-traffic
 diff predicted the direction and the `bound-by: memory` diagnosis, and the
 measured latency ratio landed at 1.3-1.4× for both TileLang and
 torch.compile — the streaming split kernels run closer to copy peak, so the
-time ratio comes in under the traffic ratio. The predicted nanoseconds were
-priced at the named H200 target (4.8 TB/s) while the attached L20Z measures
-about 3.0 TB/s copy peak.
+time ratio comes in under the traffic ratio. When absolute floors matter,
+register a target document carrying the device's actual rates (recipe in the
+target section above) instead of mentally scaling a fleet product's numbers —
+verified 2026-10-16: with the device's true HBM rate the roofline floor of a
+kernel measured at 79% of DRAM peak lands within ~4% of its measured time.
 
 ## Analyze the authored design
 
@@ -209,7 +239,7 @@ Write analysis to a named artifact:
 
 ```bash
 tilefoundry analyze path/to/model.py:ModuleName artifacts/model-analysis.txt \
-  --compute-cost --memory --roofline --performance --operands
+  --compute-cost --memory --roofline --operands
 ```
 
 Bind every open dimension needed by the selection with `--dim NAME=VALUE`.
@@ -217,21 +247,42 @@ Read the report at both levels: its header summarizes the selected function and
 target; annotations on each HIR operation show where work, traffic, footprint,
 or predicted scheduling arises.
 
-Interpret the analysis according to what it establishes:
+Interpret each family by what it is actually worth (trust table verified
+2026-10-16 at the pinned commit, cross-checked against ncu and torch.profiler
+measurements of the analyzed variants):
 
-| Output | What it supports |
-| --- | --- |
-| Compute cost | Logical operations and service demand by dtype and topology |
-| Memory | Modeled traffic and peak footprint by storage scope |
-| Roofline | A target-based lower bound and its modeled limiting resource |
-| Performance | A predicted operation timeline, placement, fit, and wave count |
+| Output | Trust | What it supports |
+| --- | --- | --- |
+| Compute cost | exact | Logical FLOPs by dtype and topology — arithmetic intensity and recompute-tax diffs between variants |
+| Memory traffic/footprint | exact | Logical bytes and per-level peaks — fusion-boundary and placement diffs; this is the ranking axis |
+| Capacity errors, L2 reuse-window advisories | trust | They fire on the buffer stream measurement later blames; a variant whose window exceeds L2 capacity is flagged before any kernel exists |
+| Roofline bound/ideal-ns | trust with a rate-correct target | The floor and its limiting resource; with the device's true HBM rate registered, the floor lands near a bandwidth-bound kernel's measured time |
+| Performance predicted-ns/waves | do not rank with it | See the warning below |
+
+`--performance` places operations on a CTA-local nominal timeline with fixed
+per-CTA service rates: compute and movement overlap *within* one op
+(duration = max of the two), occurrences with disjoint buffers may overlap,
+but loop trips run in lockstep (`trips × stride_ns`) — cross-trip software
+pipelining (the TMA-ring/WGMMA prefetch idiom) is invisible to it by
+construction ("what overlaps is what the program's own placement made
+independent"). Two further artifacts make its predicted nanoseconds unusable
+for ranking variants, both verified against measurement: it bills
+`insert_slice`/`tf.zeros` at whole-tensor-copy cost per update (a streaming
+output write of 40 MB was billed gigabytes, inflating one kernel's prediction
+27× over its measured time), and it cannot see mesh-lane under-fill — a
+40-of-132-lane scan costs the same per lane as a full launch, `waves=1` and
+`wave=132/132` on every header, so in occupancy-gated regimes it names the
+wrong winner (it preferred a fused scan over the split that measurement showed
+1.3× faster). The spec itself states performance "MUST NOT be read as a
+guarantee about physical occupancy". Occupancy-, latency-, and
+pipeline-overlap-gated questions belong to ncu and torch.profiler sweeps; use
+`--performance` output only to inspect per-op scheduling structure, never as
+the variant verdict.
 
 These are static results for the authored HIR. They do not show which TileLang
-TIR or CUDA was emitted, and predicted nanoseconds are not measured GPU
-latency (the predicted schedule's nanoseconds can be orders of magnitude above
-the roofline bound; neither is a benchmark). Use them to compare design
-alternatives and form implementation hypotheses. Select an implementation only
-after the normal TileLang correctness and benchmark gates.
+TIR or CUDA was emitted. Use them to compare design alternatives and form
+implementation hypotheses; select an implementation only after the normal
+TileLang correctness and benchmark gates.
 
 ## The compile() backend works for ops, not yet for programs
 
@@ -377,6 +428,24 @@ scale, `external/TileFoundry/examples/qwen3_8_27b_prefill-tilelang` (per-op
 scheduled HIR, finalized TIR, and the TileLang kernels implementing them).
 The finalized TIR is a specification to implement, not compiler input — do
 not feed it to `compile()` expecting a working binary (see above).
+
+Getting a program finalize-ready (verified 2026-10-16 at the pinned commit):
+
+- `schedule candidates prog.py out.txt` lists, per unscheduled site, which of
+  the target's instructions accept or refuse, with reasons. Read refusals as
+  diagnostics: every instruction refusing with `mesh ... does not match
+  Mesh(('thread',), ...)` means the HIR places data at CTA level only, and
+  instruction selection additionally needs a thread-level placement.
+- `schedule finalize` rejects such programs with the opaque
+  `return leaf () cannot be placed on its output: vN` — when that appears, go
+  to the candidates report for the real cause. Finalize also needs every open
+  dimension bound with `--dim` and `tf.schedule(...)` choices recorded in the
+  HIR; the `schedule` tutorial's own `optimal.py` (extract it with the page's
+  awk block) finalizes cleanly at the pin and is the working reference for the
+  annotation idiom.
+- `schedule facts INSTRUCTION --target IDENTITY` prints one instruction's
+  contract (execution mesh, parameter and operand constraints) — read it
+  before choosing an atom by name.
 
 Record which HIR operations and storage transitions map to each TileLang
 kernel, buffer, launch, and synchronization point. If TileLang lowering differs

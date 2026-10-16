@@ -14,6 +14,15 @@ For a supplied PyTorch baseline, first use
 to connect its source, compiled lowering, and profile to the region being
 implemented. Reuse its reference and measurements when drafting.
 
+The default draft path stays PyTorch reference → baseline inspection → TileLang
+draft (a Triton reference works too when one exists). Reach for a TileFoundry
+HIR first only when the decomposition itself is undecided — rival fusion
+boundaries or placements worth pricing statically before any kernel exists —
+or when an independent semantic oracle is wanted for a tricky rounding chain;
+see [designing-with-tilefoundry](../../designing-with-tilefoundry/SKILL.md).
+For a single focused kernel whose decomposition is obvious, authoring HIR is
+overhead.
+
 ## Choose the programming model
 
 | Style | Define | Invoke |

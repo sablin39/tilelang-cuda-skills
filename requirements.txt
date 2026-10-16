@@ -1,4 +1,8 @@
 # Extra Python tools used by the skills; torch and tilelang are installed separately.
+# Build backend for `tilefoundry scaffold` projects (external/TileFoundry) and
+# other native builds; provides .venv/bin/cmake on PATH.
+cmake
+ninja
 # TileLang layout images and torch.profiler HTML memory timelines.
 matplotlib
 # Provides the external IKET profiler (python -m iket.cli.main) used by
