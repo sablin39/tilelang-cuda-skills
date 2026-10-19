@@ -357,6 +357,14 @@ tilefoundry check path/to/model.py:RuntimeTwin \
   --json artifacts/runtime-check.json
 ```
 
+`--inputs random` draws each activation independently. When a downstream
+segment consumes a deterministic transform of an upstream activation (a
+cumsum, a gate, a decay chain), random draws break the correlation and the
+twin can FAIL for non-semantic reasons — generate those inputs from the real
+implementation and pass `--inputs files:...` instead. A failed run prints
+this warning after the fact; better to choose `files:` up front when
+activations are coupled.
+
 Derive tolerances from the operation, dtype, and serial rounding points
 (`check --help` gives the per-dtype derivation). On a discrete output (fp8,
 integer indices), one wrong value is a total failure: aggregate predicates are
