@@ -1,43 +1,44 @@
 # KernelWiki interface for TileLang work
 
-Use the supplementary [KernelWiki skill](../../../external/KernelWiki/SKILL.md)
-when a design choice, lowering result, or profile needs an implementation or
-hardware explanation. The upstream repository owns the knowledge and query
-tools. Keep local notes about the current kernel and experiment.
+Use the standalone KernelWiki skill when a design choice, lowering result, or
+profile needs an implementation or hardware explanation. The upstream
+repository owns the knowledge and query tools; the suite's installer keeps a
+usable checkout next to this suite's skills. Keep local notes about the
+current kernel and experiment.
 
 ## Locate and query
 
-KernelWiki is pinned at `external/KernelWiki` in this suite. Resolve the link
-above relative to this file, even when working in a different task repository.
-Initialize a missing checkout from the **suite root**:
+Find the installed KernelWiki skill directory: `~/.agents/skills/KernelWiki`
+in a global install, or the `KernelWiki` entry under the task project's
+`.agents/skills`, `.claude/skills`, or `.codex/skills` in a project install.
+If it is missing, install it per its official instructions — a standalone
+clone whose root is the skill directory:
 
 ```bash
-git submodule update --init -- external/KernelWiki
-KERNELWIKI_ROOT="$PWD/external/KernelWiki"
+git clone --depth 1 https://github.com/mit-han-lab/KernelWiki.git ~/.agents/skills/KernelWiki
 ```
 
-When invoking from elsewhere, set `KERNELWIKI_ROOT` to that absolute checkout
-path. The scripts resolve their corpus from their own location. Run them with
-the task's active `python`, whatever environment manager provides it (venv,
-uv, conda, ...):
+Its scripts resolve their corpus from their own location, so they run from
+anywhere with the task's active `python`, whatever environment manager
+provides it (venv, uv, conda, ...):
 
 ```bash
+kw=~/.agents/skills/KernelWiki   # the installed KernelWiki skill directory
 # Find a mechanism or a TileLang implementation change.
-python "$KERNELWIKI_ROOT/scripts/query.py" pipeline --type technique --limit 3 --compact
-python "$KERNELWIKI_ROOT/scripts/query.py" --repo tilelang --limit 3 --compact
+python3 "$kw/scripts/query.py" pipeline --type technique --limit 3 --compact
+python3 "$kw/scripts/query.py" --repo tilelang --limit 3 --compact
 # Fetch a selected page and the excerpts of its cited sources.
-python "$KERNELWIKI_ROOT/scripts/get_page.py" technique-pipeline-stages --follow-sources
+python3 "$kw/scripts/get_page.py" technique-pipeline-stages --follow-sources
 # Search an unfamiliar symbol found in generated code.
-python "$KERNELWIKI_ROOT/scripts/grep_wiki.py" mbarrier --only wiki --limit 3 --files-only
+python3 "$kw/scripts/grep_wiki.py" mbarrier --only wiki --limit 3 --files-only
 ```
 
 Choose query words from the actual operation, emitted symbol, or observed
 symptom. The upstream interface also supports `--architecture`, `--language`,
-`--symptom`, `--has-code`, and `--paths-only`; see its
-[SKILL.md](../../../external/KernelWiki/SKILL.md) for navigation and
-[query help](../../../external/KernelWiki/scripts/query.py) for filters.
-Use an architecture filter matching the actual target. A cross-language example
-can explain emitted CUDA even when a TileLang-only search has no result.
+`--symptom`, `--has-code`, and `--paths-only`; see the skill's own `SKILL.md`
+for navigation and `scripts/query.py --help` for filters. Use an architecture
+filter matching the actual target. A cross-language example can explain
+emitted CUDA even when a TileLang-only search has no result.
 
 Read selected pages, follow their `sources` and `prerequisites` as needed, and
 inspect concrete upstream files with their `PROVENANCE.yaml`. `--follow-sources`
@@ -68,7 +69,7 @@ mechanism is unsupported. PyYAML is optional; upstream includes a fallback.
 
 Keep a short chain with the experiment:
 `TileLang source/config -> lowering artifact -> Wiki page/source -> hypothesis -> validation/measurement -> decision`.
-Record the Wiki revision (`git -C "$KERNELWIKI_ROOT" rev-parse HEAD`), page
+Record the Wiki revision (`git -C "$kw" rev-parse HEAD`), page
 ID/path, upstream locator, actual target, and confidence. Distinguish facts
 observed locally from explanations still to be tested.
 

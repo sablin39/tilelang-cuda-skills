@@ -1,7 +1,3 @@
-[submodule "external/KernelWiki"]
-	path = external/KernelWiki
-	url = https://github.com/mit-han-lab/KernelWiki.git
-	shallow = true
 [submodule "external/TileFoundry"]
 	path = external/TileFoundry
 	url = https://github.com/tile-ai/TileFoundry.git

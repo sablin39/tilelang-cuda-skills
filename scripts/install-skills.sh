@@ -3,7 +3,7 @@
 #
 # Usage:
 #   scripts/install-skills.sh [--scope project|global] [--target kimi|claude|codex|all]
-#                             [--copy] [--kernelwiki PATH] [--pypi-mirror URL]
+#                             [--copy] [--pypi-mirror URL]
 #                             [--no-hmz] [--check-only]
 #
 # Defaults: --scope project --target all, skills symlinked (single source of truth
@@ -19,8 +19,10 @@
 #
 # Global scope uses ~/.agents/skills as the canonical location (the most widely
 # recognized skills convention) and mirrors it with symlinks from ~/.claude/skills
-# and ~/.codex/skills. KernelWiki is then installed following its official
-# instruction: a standalone clone whose root is the skill directory.
+# and ~/.codex/skills. KernelWiki is a standalone skill dependency: per its
+# official instructions it is cloned once so the clone root is the skill
+# directory, at ~/.agents/skills/KernelWiki, and project-scope installs link it
+# in from there.
 #
 # Unless --no-hmz is given, the humanize orchestrator (hmz) is installed via uv
 # when missing; uv is a hard requirement in that case and the script stops
@@ -45,7 +47,6 @@ SUITE_CACHE="${SUITE_CACHE:-$HOME/.local/share/tilelang-cuda-skills}"
 scope=project
 target=all
 mode=symlink
-kw_arg=""
 with_hmz=1
 check_only=0
 pypi_mirror="${PYPI_MIRROR:-https://mirrors.aliyun.com/pypi/simple}"
@@ -55,11 +56,10 @@ while [ $# -gt 0 ]; do
     --scope)      scope="$2"; shift 2 ;;
     --target)     target="$2"; shift 2 ;;
     --copy)       mode=copy; shift ;;
-    --kernelwiki) kw_arg="$2"; shift 2 ;;
     --pypi-mirror) pypi_mirror="$2"; shift 2 ;;
     --no-hmz)     with_hmz=0; shift ;;
     --check-only) check_only=1; shift ;;
-    -h|--help)    sed -n '2,29p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -101,10 +101,11 @@ for cli in kimi claude codex; do
 done
 
 # --- KernelWiki: locate, verify, repair --------------------------------------
+# KernelWiki is a standalone skill, cloned once at the canonical
+# ~/.agents/skills/KernelWiki and linked into every installed skills directory.
 # A checkout is usable when its structure is present and its query script
 # answers (official smoke test first, --help as fallback). A checkout with no
-# readable commit, one behind the remote, or — for the suite's pinned
-# submodule — one off the recorded pin, is removed and reinstalled.
+# readable commit or one behind the remote is removed and reinstalled.
 
 kw_head() { git -C "$1" rev-parse HEAD 2>/dev/null || true; }
 kw_rev() { local h; h="$(kw_head "$1")"; echo "${h:-none}"; }
@@ -116,20 +117,10 @@ kw_usable() { # $1=checkout path
   python3 "$kw/scripts/query.py" --help >/dev/null 2>&1
 }
 
-kw_fresh() { # $1=checkout path; 0 when a commit exists and is where it should be
-  local kw="$1" local_head remote_head pin
+kw_fresh() { # $1=checkout path; 0 when a commit exists and matches the remote
+  local kw="$1" local_head remote_head
   local_head="$(kw_head "$kw")"
   [ -n "$local_head" ] || return 1
-  # The suite's submodule is pinned deliberately: it is fresh when it matches
-  # the superproject's recorded pin, not when it matches the remote.
-  if [ "$kw" = "$SUITE_ROOT/external/KernelWiki" ]; then
-    pin="$(git -C "$SUITE_ROOT" ls-tree HEAD -- external/KernelWiki 2>/dev/null | awk '{print $3}')"
-    if [ -n "$pin" ]; then
-      [ "$local_head" = "$pin" ] && return 0
-      warn "KernelWiki submodule is at $local_head but the suite pins $pin; reinitializing to the pin"
-      return 1
-    fi
-  fi
   remote_head="$(git ls-remote "$KERNELWIKI_URL" HEAD 2>/dev/null | cut -f1 || true)"
   if [ -z "$remote_head" ]; then
     warn "cannot reach $KERNELWIKI_URL; keeping KernelWiki at $local_head"
@@ -146,62 +137,28 @@ kw_clone() { # $1=destination
 
 # Remove and reinstall a broken or stale checkout in place.
 kw_repair() { # $1=checkout path
-  local kw="$1"
-  if [ "$kw" = "$SUITE_ROOT/external/KernelWiki" ]; then
-    rm -rf "$kw"
-    git -C "$SUITE_ROOT" submodule update --init -- external/KernelWiki
-  else
-    kw_clone "$kw"
-  fi
-  kw_usable "$kw"
+  kw_clone "$1"
+  kw_usable "$1"
 }
 
-KW=""
+KW="$GLOBAL_SKILLS/KernelWiki"
 ensure_kernelwiki() {
-  if [ "$scope" = global ]; then
-    KW="$GLOBAL_SKILLS/KernelWiki"
-    if [ -d "$KW" ]; then
-      if kw_usable "$KW" && kw_fresh "$KW"; then
-        echo "KernelWiki: $KW (rev $(kw_head "$KW")) — usable, up to date"
-      elif [ "$check_only" -eq 1 ]; then
-        echo "KernelWiki: $KW — present but corrupted or stale (rev $(kw_rev "$KW"))"
-      else
-        warn "KernelWiki at $KW has no/older commit ($(kw_rev "$KW")); reinstalling"
-        kw_repair "$KW" || { echo "ERROR: KernelWiki reinstall failed" >&2; exit 1; }
-      fi
+  if [ -d "$KW" ]; then
+    if kw_usable "$KW" && kw_fresh "$KW"; then
+      echo "KernelWiki: $KW (rev $(kw_head "$KW")) — usable, up to date"
     elif [ "$check_only" -eq 1 ]; then
-      echo "KernelWiki: $KW — NOT installed"
+      echo "KernelWiki: $KW — present but corrupted or stale (rev $(kw_rev "$KW"))"
     else
-      echo "Installing KernelWiki per official instructions (clone root = skill dir) ..."
-      mkdir -p "$GLOBAL_SKILLS"
-      kw_clone "$KW"
-      kw_usable "$KW" || { echo "ERROR: fresh KernelWiki clone failed the smoke test" >&2; exit 1; }
+      warn "KernelWiki at $KW has no/older commit ($(kw_rev "$KW")); reinstalling"
+      kw_repair "$KW" || { echo "ERROR: KernelWiki reinstall failed" >&2; exit 1; }
     fi
+  elif [ "$check_only" -eq 1 ]; then
+    echo "KernelWiki: $KW — NOT installed"
   else
-    local candidate
-    for candidate in "$kw_arg" "${KERNELWIKI_ROOT:-}" "$SUITE_ROOT/external/KernelWiki" "$GLOBAL_SKILLS/KernelWiki" "$HOME/.local/share/KernelWiki"; do
-      [ -n "$candidate" ] && [ -d "$candidate" ] || continue
-      if kw_usable "$candidate" && kw_fresh "$candidate"; then
-        KW="$candidate"; break
-      fi
-      if [ "$check_only" -eq 1 ]; then
-        echo "KernelWiki: $candidate — corrupted or stale (rev $(kw_rev "$candidate")), would reinstall"
-        continue
-      fi
-      warn "KernelWiki at $candidate has no/older commit ($(kw_rev "$candidate")); reinstalling"
-      if kw_repair "$candidate"; then
-        KW="$candidate"; break
-      fi
-    done
-    if [ -z "$KW" ] && [ "$check_only" -eq 0 ]; then
-      if git -C "$SUITE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        git -C "$SUITE_ROOT" submodule update --init -- external/KernelWiki
-        kw_usable "$SUITE_ROOT/external/KernelWiki" && KW="$SUITE_ROOT/external/KernelWiki"
-      fi
-      [ -z "$KW" ] && { kw_clone "$HOME/.local/share/KernelWiki"; kw_usable "$HOME/.local/share/KernelWiki" && KW="$HOME/.local/share/KernelWiki"; }
-    fi
-    [ -z "$KW" ] && [ "$check_only" -eq 0 ] && { echo "ERROR: no usable KernelWiki checkout could be established" >&2; exit 1; }
-    [ -n "$KW" ] && echo "KernelWiki: $KW (rev $(kw_head "$KW")) — usable"
+    echo "Installing KernelWiki per official instructions (clone root = skill dir) ..."
+    mkdir -p "$GLOBAL_SKILLS"
+    kw_clone "$KW"
+    kw_usable "$KW" || { echo "ERROR: fresh KernelWiki clone failed the smoke test" >&2; exit 1; }
   fi
 }
 
@@ -357,7 +314,6 @@ if [ "$scope" = global ]; then
   while IFS= read -r skill; do
     install_one "$skill" "$GLOBAL_SKILLS"
   done < <(discover_skills)
-  [ "$KW" != "$GLOBAL_SKILLS/KernelWiki" ] && install_one "$KW" "$GLOBAL_SKILLS"
   for cli in "${targets[@]}"; do
     case "$cli" in
       kimi)   : ;;                      # reads ~/.agents/skills natively
@@ -378,9 +334,8 @@ fi
 
 cat <<EOF
 
-Done. For agents that query KernelWiki from outside this suite, export:
-
-  export KERNELWIKI_ROOT="$KW"
+Done. KernelWiki is a standalone skill at $KW, linked into every installed
+skills directory; the suite's skills invoke it by name.
 
 Symlinked installs track this repo; rerun with --copy for a snapshot, and rerun
 after renaming or adding skills under skills/.

@@ -19,8 +19,9 @@ Use the [checkpoint handoffs](skills/tilelang-optimization-loop/references/worke
 to give lighter workers a bounded baseline, candidate, or final-audit stage
 and check the returned evidence before continuing.
 
-The supplementary [KernelWiki](external/KernelWiki/SKILL.md) submodule supplies
-upstream implementation and hardware knowledge. TileLang skills use a
+The standalone [KernelWiki](https://github.com/mit-han-lab/KernelWiki) skill
+supplies upstream implementation and hardware knowledge; the installer sets it
+up next to this suite's skills. TileLang skills use a
 [lightweight interface](skills/tilelang-optimization-loop/references/kernelwiki.md) to connect
 source/configuration, lowering artifacts, hardware explanations, and measured
 results. Query the upstream corpus as needed and keep experiment evidence in
@@ -72,11 +73,10 @@ mode, a KernelWiki checkout with no readable commit or one behind the remote
 `--force`). Audit without changing anything via `--check-only`.
 
 KernelWiki is verified with its official smoke test
-(`scripts/query.py --tag nvfp4 --type kernel --compact`). In global scope it is
-installed per its official instructions — a standalone clone whose root is the
-skill directory — at `~/.agents/skills/KernelWiki`. In project scope the script
-prefers, in order: `--kernelwiki PATH`, `$KERNELWIKI_ROOT`, this suite's
-`external/KernelWiki` submodule, then `~/.agents/skills/KernelWiki`.
+(`scripts/query.py --tag nvfp4 --type kernel --compact`). It is installed per
+its official instructions — a standalone clone whose root is the skill
+directory — at `~/.agents/skills/KernelWiki` in both scopes; project-scope
+installs link it into each project skills directory from there.
 
 Unless `--no-hmz` is given, `hmz` is installed with `uv` (a hard requirement;
 the script stops immediately without it) with dependencies resolved through
@@ -166,17 +166,19 @@ for flows, steering, permissions, and allowances.
 
 ## Initialize KernelWiki manually
 
-Without the script, run from this suite's root:
+Without the script, clone it per its official instructions — the clone root is
+the skill directory:
 
 ```bash
-git submodule update --init -- external/KernelWiki
-python external/KernelWiki/scripts/query.py pipeline --type technique --limit 3 --compact
+git clone --depth 1 https://github.com/mit-han-lab/KernelWiki.git ~/.agents/skills/KernelWiki
+python3 ~/.agents/skills/KernelWiki/scripts/query.py pipeline --type technique --limit 3 --compact
 ```
 
-Git records the Wiki revision as a submodule pin. Initialize that revision for
-reproducible tasks; update the pin deliberately when adopting upstream changes.
-Query scripts work without extra pip dependencies. Keep the full suite checkout
-available when using its skills so their relative links resolve.
+Record the Wiki revision (`git -C ~/.agents/skills/KernelWiki rev-parse HEAD`)
+in task evidence for reproducible runs; update the clone deliberately when
+adopting upstream changes. Query scripts work without extra pip dependencies.
+Keep the full suite checkout available when using its skills so their relative
+links resolve.
 
 ## Initialize TileFoundry manually
 

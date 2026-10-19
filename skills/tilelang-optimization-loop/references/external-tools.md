@@ -1,11 +1,11 @@
 # Working with TileFoundry, KernelWiki, and ncu-report-skill
 
 TileFoundry and NCU report tooling are optional external integrations.
-KernelWiki is included as a supplementary submodule at `external/KernelWiki`.
-Together they supply authored-model analysis, research, and report-analysis
-capabilities; the task workspace still owns the executable correctness and
-benchmark harness. Keep this suite's contract, TileLang programming/lowering
-guidance, and candidate selection loop.
+KernelWiki is a standalone skill dependency, installed next to this suite's
+skills. Together they supply authored-model analysis, research, and
+report-analysis capabilities; the task workspace still owns the executable
+correctness and benchmark harness. Keep this suite's contract, TileLang
+programming/lowering guidance, and candidate selection loop.
 
 ## Responsibilities
 
@@ -41,9 +41,10 @@ combining the workflows.
 ## KernelWiki lookup
 
 Use the shared [TileLang interface](kernelwiki.md)
-for checkout initialization, direct upstream queries, and the chain from
+for locating the installed skill, direct upstream queries, and the chain from
 TileLang intent through lowering to hardware hypotheses and local evidence.
-The suite maintains this interface; the submodule maintains the knowledge.
+The suite maintains this interface; the upstream KernelWiki project maintains
+the knowledge.
 
 ## Use NCU analysis behind the existing measurement workflow
 
@@ -124,8 +125,10 @@ skill-suite/
   skills/tilelang-optimization-loop/
   skills/tilelang/
   skills/cuda_skill/             # minimal native workflow
-  external/KernelWiki/           # included pinned submodule
+  external/TileFoundry/          # vendored pinned submodule
   external/ncu-report-skill/     # proposed pinned dependency
+  # KernelWiki is a standalone skill, installed outside this tree at
+  # ~/.agents/skills/KernelWiki and linked into each skills directory.
 
 task-workspace/
   docs/                         # contract and shared plan
@@ -229,5 +232,6 @@ skill's probes at each new pin, and never track main blindly — upstream broke
 its own flagship example within two days.
 
 Preserve upstream notices and artifact provenance when incorporating files.
-KernelWiki is included; the NCU dependency and task-harness layout above remain
-integration guidance. Reuse an existing task harness when available.
+KernelWiki ships as a standalone skill; the NCU dependency and task-harness
+layout above remain integration guidance. Reuse an existing task harness when
+available.
