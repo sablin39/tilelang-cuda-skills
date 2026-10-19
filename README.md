@@ -37,9 +37,7 @@ separate installation rather than a default suite dependency.
 ## Install the suite
 
 [scripts/install-skills.sh](scripts/install-skills.sh) installs the skills for
-Kimi Code, Claude Code, and Codex, verifies KernelWiki, and sets up the
-[humanize2](https://github.com/humanfia/humanize) orchestrator (`hmz`) that can
-drive all three CLIs in one reviewed workflow.
+Kimi Code, Claude Code, and Codex, and verifies KernelWiki.
 
 Quick install, no clone needed — the script fetches the suite into
 `~/.local/share/tilelang-cuda-skills` and symlinks from there:
@@ -68,9 +66,9 @@ Project-local install — run from the task project's root; installs into
 Skills are symlinked by default, so a `git pull` of this suite updates every
 installed CLI at once; pass `--copy` for a snapshot. The script repairs what it
 finds: broken symlinks, pre-installed directories conflicting with symlink
-mode, a KernelWiki checkout with no readable commit or one behind the remote
-(removed and reinstalled), and an `hmz` that does not run (reinstalled with
-`--force`). Audit without changing anything via `--check-only`.
+mode, and a KernelWiki checkout with no readable commit or one behind the
+remote (removed and reinstalled). Audit without changing anything via
+`--check-only`.
 
 KernelWiki is verified with its official smoke test
 (`scripts/query.py --tag nvfp4 --type kernel --compact`). It is installed per
@@ -78,91 +76,9 @@ its official instructions — a standalone clone whose root is the skill
 directory — at `~/.agents/skills/KernelWiki` in both scopes; project-scope
 installs link it into each project skills directory from there.
 
-Unless `--no-hmz` is given, `hmz` is installed with `uv` (a hard requirement;
-the script stops immediately without it) with dependencies resolved through
-`--pypi-mirror URL` (default `https://mirrors.aliyun.com/pypi/simple`, or set
-`$PYPI_MIRROR`). The script warns when any of the `kimi`, `claude`, or `codex`
-CLIs is not on `PATH`. Network access, proxy variables included, is inherited
-from the caller's environment — set or unset `ALL_PROXY`/`all_proxy` before
-running as your network requires.
-
-## A short guide to hmz
-
-`hmz` runs *flows* — Python loops that drive one or more agent CLIs — using the
-CLI you are already logged into; it holds no API keys itself. Everything below
-is the whole of what you need from the hmz docs for this suite.
-
-Two ways to run anything: the TUI (`hmz`, then `$<flow> <task>` and answer
-`/flow` once), or headless (`hmz exec`, as below). Agents are named
-`cli/model:effort`, where `model` is the alias the CLI itself registers — Kimi
-Code's aliases are namespaced, so `kimi/kimi-code/k3:high` names the Kimi Code
-CLI running its `kimi-code/k3` alias (not a bare `k3`), and the 256k-context
-variant is a separate alias: `kimi/kimi-code/k3-256k:high`. The models offered
-in `/flow` are the ones your account may name, asked of the CLI itself.
-
-### Single agent: `ralph_loop`
-
-```bash
-hmz exec -f ralph_loop -a kimi/kimi-code/k3:high "Fix the bug in kernel.py"
-```
-
-One agent gets the same task over and over, each round in a **fresh
-conversation** — it restarts from the task and the repository rather than from a
-context window full of its own earlier attempts. Simple, cheap, and the right
-default for one bounded experiment at a time.
-
-### Multiple agents: `flame_chase`
-
-```bash
-hmz exec -f flame_chase -a kimi/kimi-code/k3-256k:high -a claude/glm-5.3:high "Fix the bug in kernel.py"
-```
-
-Two implementers — here Kimi Code's Kimi K3 and GLM-5.3 backed by Claude Code,
-one `-a` per agent in turn order — **alternate turns on the same tree**. Neither
-is told what the other said; the repository is the only account of the last
-turn. The difference from `ralph_loop`: a loop over one agent compounds that
-model's blind spot, while alternation gives every round to a model that did not
-write what it is looking at — two models fail differently, so each round is also
-an implicit review of the last one. (The number of `-a` flags must match the
-flow: `ralph_loop` takes one, `flame_chase` takes two.)
-
-Either way: keep the plan and candidate history in files, as the
-optimization-loop skill prescribes, since no round remembers the last. Loops do
-not stop on their own — a run's **allowance** (hours, tokens, or dollars, set
-via `-c budget.yaml` or the budget row in `/flow`) caps them — and every round
-is logged, so stopping loses nothing.
-
-Steer and stop. While a turn runs, just type a line — it goes *into* the
-running turn (Kimi Code, Claude Code, and Codex all accept mid-turn input);
-with no turn open the line is held for the next one, never dropped. Stop with
-**ctrl+c twice** in the TUI (once for `hmz exec`) or `/stop`; `/resume` picks
-the run up where it stopped, and `/epics` lists past runs.
-
-Review with all three CLIs. A custom flow in `~/.hmz/flows/<name>/`
-(global) or `<task>/.hmz/flows/<name>/` (project) can assign roles across
-model families — e.g. Kimi implements a candidate, Claude reviews the evidence
-chain, Codex re-runs the exact validation and benchmark commands — driven by
-one `-a` per CLI:
-
-```bash
-hmz exec -f reviewed_opt_loop -a kimi/kimi-code/k3:high \
-  -a claude/claude-opus-4-8:high -a codex/gpt-5.6-sol:high "Optimize per docs/plan.md"
-```
-
-Where flows live. The classic loops — `chat`, `ralph_loop`, `stateful_ralph`,
-`continue_loop`, `goal`, `flame_chase`, `rlar` — ship inside the `hmz` package
-and need no setup. Everything else (`humanize1`'s idea/plan/rlcr phases,
-`flame_chasoid`, and other experiments) is a separately versioned release in the
-official flowverse: open `/flowverses` in the TUI and fetch, then install the
-release you want. hmz is published on PyPI as pre-releases, so
-`uv tool install 'hmz[all]>=0.1.0b1'` also works; this suite's installer tracks
-the git source instead so upgrades follow upstream `main`. Note hmz's state
-home is `~/.hmz` — runs, settings, and flowverses from the old `~/.humanize`
-layout are not carried over, so per-directory flow/agent setups are chosen
-once again on first use.
-
-See the [humanize user guide](https://github.com/humanfia/humanize/tree/main/docs)
-for flows, steering, permissions, and allowances.
+Network access, proxy variables included, is inherited from the caller's
+environment — set or unset `ALL_PROXY`/`all_proxy` before running as your
+network requires.
 
 ## Initialize KernelWiki manually
 

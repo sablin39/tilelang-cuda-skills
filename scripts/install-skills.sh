@@ -3,8 +3,7 @@
 #
 # Usage:
 #   scripts/install-skills.sh [--scope project|global] [--target kimi|claude|codex|all]
-#                             [--copy] [--pypi-mirror URL]
-#                             [--no-hmz] [--check-only]
+#                             [--copy] [--check-only]
 #
 # Defaults: --scope project --target all, skills symlinked (single source of truth
 # in this repo; git pull updates every installed CLI at once). --copy snapshots
@@ -24,19 +23,14 @@
 # directory, at ~/.agents/skills/KernelWiki, and project-scope installs link it
 # in from there.
 #
-# Unless --no-hmz is given, the humanize orchestrator (hmz) is installed via uv
-# when missing; uv is a hard requirement in that case and the script stops
-# immediately without it. Its Python dependencies resolve through --pypi-mirror
-# (default: Aliyun; override with the flag or $PYPI_MIRROR). Network access
-# (proxy variables included) is inherited from the caller's environment; set or
-# unset ALL_PROXY/all_proxy before running the script as your network requires.
+# Network access (proxy variables included) is inherited from the caller's
+# environment; set or unset ALL_PROXY/all_proxy before running the script as
+# your network requires.
 set -euo pipefail
 
 SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILLS_SRC="$SUITE_ROOT/skills"
 KERNELWIKI_URL="https://github.com/mit-han-lab/KernelWiki.git"
-HMZ_PKG="hmz[all] @ git+https://github.com/humanfia/humanize.git"
-HMZ_URL="https://github.com/humanfia/humanize.git"
 GLOBAL_SKILLS="$HOME/.agents/skills"
 # Standalone (curl | bash) mode: the suite is fetched into a cache and the
 # skills symlinked from there, so reruns and git pulls update every CLI.
@@ -47,19 +41,15 @@ SUITE_CACHE="${SUITE_CACHE:-$HOME/.local/share/tilelang-cuda-skills}"
 scope=project
 target=all
 mode=symlink
-with_hmz=1
 check_only=0
-pypi_mirror="${PYPI_MIRROR:-https://mirrors.aliyun.com/pypi/simple}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --scope)      scope="$2"; shift 2 ;;
     --target)     target="$2"; shift 2 ;;
     --copy)       mode=copy; shift ;;
-    --pypi-mirror) pypi_mirror="$2"; shift 2 ;;
-    --no-hmz)     with_hmz=0; shift ;;
     --check-only) check_only=1; shift ;;
-    -h|--help)    sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -84,21 +74,6 @@ if [ ! -d "$SKILLS_SRC" ]; then
     git clone --depth 1 --branch "$SUITE_REF" "$SUITE_URL" "$SUITE_CACHE"
   fi
 fi
-
-# --- Requirements ------------------------------------------------------------
-
-if [ "$with_hmz" -eq 1 ] && ! command -v uv >/dev/null 2>&1; then
-  echo "ERROR: uv is required to check and install hmz but was not found on PATH. Stop." >&2
-  exit 1
-fi
-
-for cli in kimi claude codex; do
-  if command -v "$cli" >/dev/null 2>&1; then
-    echo "backend: $cli — found ($(command -v "$cli"))"
-  else
-    warn "backend CLI '$cli' not on PATH; hmz cannot drive it until installed and logged in"
-  fi
-done
 
 # --- KernelWiki: locate, verify, repair --------------------------------------
 # KernelWiki is a standalone skill, cloned once at the canonical
@@ -162,75 +137,7 @@ ensure_kernelwiki() {
   fi
 }
 
-# --- humanize (hmz) orchestrator ---------------------------------------------
-# Same contract as KernelWiki: broken or older than the remote is reinstalled;
-# current is left alone. Every case prints its status. Presence and integrity
-# are uv's own call: the tool venv under `uv tool dir`, verified with
-# `uv pip check`, which validates the whole dependency closure and needs no
-# hmz on PATH. The installed revision is the git commit recorded in uv's
-# direct_url.json; if it cannot be read, hmz is treated as broken and
-# reinstalled, which also heals non-uv installs into a revision-readable one.
-
-hmz_venv() { echo "$(uv tool dir 2>/dev/null)/hmz"; }
-
-hmz_installed() { [ -d "$(hmz_venv)" ]; }
-
-hmz_usable() { # 0 when uv's integrity check passes on the tool venv
-  local venv
-  venv="$(hmz_venv)"
-  [ -x "$venv/bin/python" ] || return 1
-  uv pip check --python "$venv/bin/python" >/dev/null 2>&1
-}
-
-hmz_head() {
-  local json
-  for json in "$(hmz_venv)"/lib/python3.*/site-packages/hmz-*.dist-info/direct_url.json; do
-    [ -f "$json" ] || continue
-    sed -n 's/.*"commit_id": *"\([0-9a-f]\{7,\}\)".*/\1/p' "$json"
-    return 0
-  done
-}
-
-hmz_rev() { local h; h="$(hmz_head)"; echo "${h:-unknown}"; }
-
-hmz_fresh() { # 0 when a revision is readable and matches the remote
-  local local_head remote_head
-  local_head="$(hmz_head)"
-  [ -n "$local_head" ] || return 1
-  remote_head="$(git ls-remote "$HMZ_URL" HEAD 2>/dev/null | cut -f1 || true)"
-  if [ -z "$remote_head" ]; then
-    warn "cannot reach $HMZ_URL; keeping hmz at $local_head"
-    return 0
-  fi
-  [ "$local_head" = "$remote_head" ]
-}
-
-hmz_install() {
-  uv tool install --force --index-url "$pypi_mirror" "$HMZ_PKG"
-  command -v hmz >/dev/null 2>&1 || warn "hmz installed but not on PATH; run: uv tool update-shell"
-  hmz_usable || warn "hmz still fails uv's integrity check after install"
-}
-
-ensure_hmz() {
-  if ! hmz_installed; then
-    if [ "$check_only" -eq 1 ]; then echo "hmz: NOT installed"; return 0; fi
-    echo "Installing hmz with uv (index: $pypi_mirror) ..."
-    hmz_install
-  elif ! hmz_usable; then
-    if [ "$check_only" -eq 1 ]; then echo "hmz: present but failed uv's integrity check; would reinstall"; return 0; fi
-    warn "hmz failed uv's integrity check; reinstalling"
-    hmz_install
-  elif hmz_fresh; then
-    echo "hmz: $(hmz_venv) (rev $(hmz_rev)) — up to date"
-  else
-    if [ "$check_only" -eq 1 ]; then echo "hmz: older or unreadable revision ($(hmz_rev)); would reinstall"; return 0; fi
-    warn "hmz is an older or unreadable revision ($(hmz_rev)); reinstalling"
-    hmz_install
-  fi
-}
-
 ensure_kernelwiki
-[ "$with_hmz" -eq 1 ] && ensure_hmz
 
 # --- Discover skills: dirs containing SKILL.md, skipping nested duplicates ---
 
