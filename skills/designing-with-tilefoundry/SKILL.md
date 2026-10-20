@@ -17,6 +17,14 @@ independent semantic model. For a focused question about an existing TileLang
 `PrimFunc`, start with the relevant TileLang writing, debugging, profiling, or
 optimization skill.
 
+Know what it costs (single-operator ablation, measured 2026-10-20): on a
+coldstart whose deliverable is just a fast kernel plus a pragmatic fusion
+decision, a TileLang-skills-only arm finished 6-8× cheaper and produced the
+*faster* kernel. This layer pays when variants must be priced before any kernel
+exists, when an independent semantic anchor is required (model-scale work),
+or when the static evidence itself is the deliverable — not as a
+kernel-speed tool.
+
 ## Use the vendored checkout
 
 This suite vendors TileFoundry as a submodule at
@@ -127,6 +135,17 @@ Authoring notes verified at the pinned commit (2026-10-15):
 - `Topology("thread", N)` counts per-CTA threads (limit 1024), so a
   `ROWS * warps * 32`-style pattern breaks as ROWS grows; size the thread
   topology per CTA, not per launch.
+- A `tf.tile` window is a window only as a *direct* slice index; any
+  arithmetic on it (`f = cw * NC + i`) folds it to its scalar start and the
+  slice silently loses a rank (scan case, 2026-10-19). Index with the two
+  windows directly and reshape flat↔3D at pass boundaries instead.
+- A scalar index drops the axis: `cs[f, 0, :]` on a `[TILES,1,N]` tensor
+  yields rank-2. Size-1 axes need an explicit `0:1` range slice.
+- One mesh layout extent per module: mixed lane counts across passes are
+  rejected (`logical axis 0 size 40 is not divisible by mesh extent product
+  128`). Lane counts are divisibility-driven wave widths, not launch
+  configs — and `tf.tile` needs exact division, so sweep dimensions must be
+  multiples of the wave width.
 
 Never trust captured output in a page, README, or copied example: rendered
 reports drift between releases and the DSL itself has broken shipped examples
@@ -255,9 +274,22 @@ measurements of the analyzed variants):
 | --- | --- | --- |
 | Compute cost | exact | Logical FLOPs by dtype and topology — arithmetic intensity and recompute-tax diffs between variants |
 | Memory traffic/footprint | exact | Logical bytes and per-level peaks — fusion-boundary and placement diffs; this is the ranking axis |
-| Capacity errors, L2 reuse-window advisories | trust | They fire on the buffer stream measurement later blames; a variant whose window exceeds L2 capacity is flagged before any kernel exists |
-| Roofline bound/ideal-ns | trust with a rate-correct target | The floor and its limiting resource; with the device's true HBM rate registered, the floor lands near a bandwidth-bound kernel's measured time |
+| Capacity errors, L2 reuse-window advisories | trust, within their coverage | They fire on the buffer stream measurement later blames — but coverage is structural, not semantic: verified 2026-10-19 that the window machinery keys on staging buffers reused *within one loop nest* and misses capacity overflow across *sibling top-level loops* (a two-pass scan's chunk-state stream crossed 2× L2 with no advisory) |
+| Roofline bound/ideal-ns | trust with a rate-correct target | The floor and its limiting resource; with the device's true HBM rate registered, the floor lands near a bandwidth-bound kernel's measured time — and near a compute-bound one: a 4096³ GEMM floor came within 0.5% of measured cuBLAS once the target document's derating note and cold-L2 compulsory reads were priced in (2026-10-19) |
 | Performance predicted-ns/waves | do not rank with it | See the warning below |
+
+Two sharpening principles, both verified against measurement (2026-10-19/20):
+
+- **Traffic/roofline ratios price a decision's *ceiling*, not its guaranteed
+  margin.** A static fused-by-1.47× ratio materialized as 1.48× measured only
+  with an equally-well-optimized implementation pair; a fidelity-constrained
+  pair measured a tie on the same question. When a static margin matters,
+  budget the optimization effort to realize it.
+- **Whether the occupancy blind spot bites is kernel-structure ×
+  op-structure dependent, not a function of lane count.** The DPLR inversion
+  (below) needed dependent MMA chains without pipelining; a pipelined
+  elementwise scan at the same 40/132 lane fill was issue-rate-bound and the
+  static ranking's *direction* held (its magnitude did not).
 
 `--performance` places operations on a CTA-local nominal timeline with fixed
 per-CTA service rates: compute and movement overlap *within* one op
@@ -269,15 +301,16 @@ independent"). Two further artifacts make its predicted nanoseconds unusable
 for ranking variants, both verified against measurement: it bills
 `insert_slice`/`tf.zeros` at whole-tensor-copy cost per update (a streaming
 output write of 40 MB was billed gigabytes, inflating one kernel's prediction
-27× over its measured time), and it cannot see mesh-lane under-fill — a
-40-of-132-lane scan costs the same per lane as a full launch, `waves=1` and
-`wave=132/132` on every header, so in occupancy-gated regimes it names the
-wrong winner (it preferred a fused scan over the split that measurement showed
-1.3× faster). The spec itself states performance "MUST NOT be read as a
-guarantee about physical occupancy". Occupancy-, latency-, and
-pipeline-overlap-gated questions belong to ncu and torch.profiler sweeps; use
-`--performance` output only to inspect per-op scheduling structure, never as
-the variant verdict.
+27× over its measured time; re-confirmed on a second operator family
+2026-10-19, 55-60× over measured on both scan variants), and it cannot see
+mesh-lane under-fill — a 40-of-132-lane scan costs the same per lane as a
+full launch, `waves=1` and `wave=132/132` on every header, so in
+occupancy-gated regimes it names the wrong winner (it preferred a fused scan
+over the split that measurement showed 1.3× faster). The spec itself states
+performance "MUST NOT be read as a guarantee about physical occupancy".
+Occupancy-, latency-, and pipeline-overlap-gated questions belong to ncu and
+torch.profiler sweeps; use `--performance` output only to inspect per-op
+scheduling structure, never as the variant verdict.
 
 These are static results for the authored HIR. They do not show which TileLang
 TIR or CUDA was emitted. Use them to compare design alternatives and form
@@ -306,8 +339,8 @@ vendored checkout unless said otherwise):
   "optimal" GEMM cannot compile at all; four emitter bugs broke ordinary
   lowered programs (slice coordinates on Dim arithmetic, `MeshCoord`
   coordinates, missing `Cast` emitter, `Fill` on kernel params — small fixes
-  validated against upstream's suite, archived in
-  `evals/tilefoundry-coldstart-20261008/artifacts/5f346a2-recheck/`); and with
+  validated against upstream's own test suite, submitted upstream as PR
+  tile-ai/TileFoundry#240); and with
   those fixed plus a hand-added reduce workspace, the compiled RMSNorm reads
   shared memory out of bounds because the runtime reduce dispatch mis-counts
   `warps_per_group` for the composed cta×thread mesh that every multi-CTA
@@ -376,6 +409,14 @@ agreement with the authored evaluator for those cases; run the suite's
 TileLang tests for the independent reference, tails, mutation, gradients, and
 repeated-call state.
 
+Evaluator coverage, measured 2026-10-19: an 8192-step recurrence whose
+slices carry loop *windows* (`g[cw, t, :]`) checks fine (both scan twins
+PASS, max_violation 0), but a persistent kernel whose loop bound carries a
+mesh coordinate is refused — `evaluator: LoopRegion start: resolve_dim:
+non-dim Call target MeshCoord`, same family as the documented TF-1. When
+that appears, fall back to direct validation against the PyTorch reference
+and record it; it is an evaluator gap, not a kernel failure.
+
 ## Visualize HIR for review
 
 For a portable source artifact, serialize the entry graph as DOT:
@@ -437,6 +478,17 @@ scheduled HIR, finalized TIR, and the TileLang kernels implementing them).
 The finalized TIR is a specification to implement, not compiler input — do
 not feed it to `compile()` expecting a working binary (see above).
 
+The suite has now driven this leg itself (verified 2026-10-19): a
+suite-authored scheduled 4096³ GEMM finalized first try (tile shapes are
+shape-independent; only the grid/swizzle arithmetic is re-derived per shape —
+note K/BK ≡ 1 (mod 3) shifts the ring rotation one slot per tile, which
+finalize's index arithmetic already encodes), and the TileLang kernel
+implementing the TIR reached 94.8% of cuBLAS, bitwise-equal to it. The
+mapping is mechanical except where the TIR is deliberately silent: the
+synchronization protocol (mbarriers, parities, `wait_wgmma`, `set_max_nreg`)
+is the kernel author's to add, and that is where most of the implementation
+effort goes — log every deliberate deviation from the TIR with its reason.
+
 Getting a program finalize-ready (verified 2026-10-16 at the pinned commit):
 
 - `schedule candidates prog.py out.txt` lists, per unscheduled site, which of
@@ -469,6 +521,6 @@ The vendored source lives at
 [external/TileFoundry](../../../external/TileFoundry); upstream is
 [tile-ai/TileFoundry](https://github.com/tile-ai/TileFoundry). The project
 moves fast and breaks its own examples within days, so verify the active CLI
-and DSL against the pinned checkout after every submodule bump, and re-run the
-probes in this file (tutorial extraction, twin check, one `tests/ops/tir`
+and DSL against the pinned checkout after every submodule bump, and re-run
+the probes in this file (tutorial extraction, twin check, one `tests/ops/tir`
 test) before trusting the workflow at a new pin.
