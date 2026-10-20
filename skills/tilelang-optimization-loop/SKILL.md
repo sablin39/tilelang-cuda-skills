@@ -70,7 +70,8 @@ by `analyze --performance` predicted nanoseconds: its timeline bills
 `insert_slice`/`tf.zeros` at whole-tensor-copy cost per update and cannot see
 mesh-lane under-fill, so it names the wrong winner in occupancy-gated regimes
 (verified 2026-10-16 on a chunk-sequential scan, 40 of 132 lanes, pin
-`5f346a2`). Do not introduce
+`5f346a2`; predicted-ns numbers byte-identical at `25fbbaa`, 2026-10-20).
+Do not introduce
 TileFoundry solely to tune an isolated, already-defined `PrimFunc`, and do not
 rely on TileFoundry's own `compile()` CUDA backend as a measured floor — it
 remains experimental (emitter gaps for scheduled programs); see the

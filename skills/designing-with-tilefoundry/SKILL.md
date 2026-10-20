@@ -29,7 +29,7 @@ kernel-speed tool.
 
 This suite vendors TileFoundry as a submodule at
 [external/TileFoundry](../../../external/TileFoundry), pinned to a recorded
-upstream commit (currently main @ `5f346a2`, 0.0.3.dev38), and installs it
+upstream commit (currently main @ `25fbbaa`), and installs it
 editable into the suite's `.venv`:
 
 ```bash
@@ -152,7 +152,8 @@ reports drift between releases and the DSL itself has broken shipped examples
 within days (the `rmem_layout=` schedule attribute was removed two days after
 the flagship example that used it was verified). The commands are the
 contract — rerun them and read what the pinned checkout actually prints.
-This workflow is verified against the vendored submodule at `5f346a2`.
+This workflow is verified against the vendored submodule at `25fbbaa`
+(verified 2026-10-20).
 
 ## Select the target by SM capability
 
@@ -489,19 +490,22 @@ synchronization protocol (mbarriers, parities, `wait_wgmma`, `set_max_nreg`)
 is the kernel author's to add, and that is where most of the implementation
 effort goes — log every deliberate deviation from the TIR with its reason.
 
-Getting a program finalize-ready (verified 2026-10-16 at the pinned commit):
+Getting a program finalize-ready (verified 2026-10-20 at the pinned commit):
 
 - `schedule candidates prog.py out.txt` lists, per unscheduled site, which of
   the target's instructions accept or refuse, with reasons. Read refusals as
   diagnostics: every instruction refusing with `mesh ... does not match
   Mesh(('thread',), ...)` means the HIR places data at CTA level only, and
   instruction selection additionally needs a thread-level placement.
-- `schedule finalize` rejects such programs with the opaque
-  `return leaf () cannot be placed on its output: vN` — when that appears, go
-  to the candidates report for the real cause. Finalize also needs every open
-  dimension bound with `--dim` and `tf.schedule(...)` choices recorded in the
-  HIR; the `schedule` tutorial's own `optimal.py` (extract it with the page's
-  awk block) finalizes cleanly at the pin and is the working reference for the
+- `schedule finalize` rejects unscheduled programs with an actionable error
+  naming the site, its instruction candidates, and the remedy, e.g.
+  `aqk_c has instruction candidates [T.copy, ...] but no automatic selection;
+  write tf.schedule to choose the instruction and its attributes`. When the
+  candidate list is empty or surprising, go to the candidates report for the
+  refusal reasons. Finalize also needs every open dimension bound with
+  `--dim` and `tf.schedule(...)` choices recorded in the HIR; the `schedule`
+  tutorial's own `optimal.py` (extract it with the page's awk block)
+  finalizes cleanly at the pin and is the working reference for the
   annotation idiom.
 - `schedule facts INSTRUCTION --target IDENTITY` prints one instruction's
   contract (execution mesh, parameter and operand constraints) — read it

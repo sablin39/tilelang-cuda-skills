@@ -231,6 +231,17 @@ as its answer. The pin policy: bump the submodule deliberately, re-run the
 skill's probes at each new pin, and never track main blindly — upstream broke
 its own flagship example within two days.
 
+Bumped to `25fbbaa` (#246) on 2026-10-20. The four local emitter patches are
+now upstream (merged as `a5501c9`, PR tile-ai/TileFoundry#240), and the
+opaque finalize error is fixed (#241, closing #237): `schedule finalize` now
+names the unscheduled site, lists its instruction candidates, and points at
+`tf.schedule` as the remedy. Still open: #239 (the `insert_slice`/`tf.zeros`
+per-position billing and lane under-fill — predicted-ns numbers are
+byte-identical at the new pin, so the ranking-inversion warning stands), the
+TMA/WGMMA/`Where` emitter gaps, and the `warps_per_group` reduce-dispatch
+bug. Probe harness 12/12 PASS at the new pin; trust-table spot checks
+byte-identical.
+
 Preserve upstream notices and artifact provenance when incorporating files.
 KernelWiki ships as a standalone skill; the NCU dependency and task-harness
 layout above remain integration guidance. Reuse an existing task harness when
