@@ -37,7 +37,8 @@ separate installation rather than a default suite dependency.
 ## Install the suite
 
 [scripts/install-skills.sh](scripts/install-skills.sh) installs the skills for
-Kimi Code, Claude Code, and Codex, and verifies KernelWiki.
+Kimi Code, Claude Code, and Codex, verifies KernelWiki, and checks out the
+pinned TileFoundry source (with its CUTLASS dependency).
 
 Quick install, no clone needed — the script fetches the suite into
 `~/.local/share/tilelang-cuda-skills` and symlinks from there:
@@ -47,7 +48,10 @@ curl -fsSL https://raw.githubusercontent.com/sablin39/tilelang-cuda-skills/main/
 ```
 
 Rerunning the same command updates the cached suite and every installed CLI at
-once. Override the source with `$SUITE_URL`, `$SUITE_REF`, and `$SUITE_CACHE`.
+once, and moves TileFoundry to the commit the suite records. Override the
+source with `$SUITE_URL`, `$SUITE_REF`, and `$SUITE_CACHE`. The installer never
+updates TileFoundry to upstream main: it checks out the submodule gitlink and
+prints how to run or install that source.
 
 Global install from a checkout — canonical location `~/.agents/skills`,
 mirrored with symlinks into `~/.claude/skills` and `~/.codex/skills`:
@@ -96,16 +100,35 @@ adopting upstream changes. Query scripts work without extra pip dependencies.
 Keep the full suite checkout available when using its skills so their relative
 links resolve.
 
-## Initialize TileFoundry manually
+## TileFoundry
 
-TileFoundry is vendored the same way at `external/TileFoundry`, but it also
-needs an editable install and its CUTLASS submodule (its CUDA backend resolves
-headers relative to the source checkout; the PyPI wheel ships none):
+TileFoundry ships with the suite as a pinned submodule at
+`external/TileFoundry`; the installer checks it out together with its
+`third_party/cutlass` dependency and prints the source path and install
+commands. The source is the designated distribution — its CUDA backend resolves
+headers and CUTLASS relative to the checkout, and the PyPI wheel ships neither.
+
+Run the CLI without installing:
 
 ```bash
-git submodule update --init -- external/TileFoundry
-git -C external/TileFoundry submodule update --init third_party/cutlass
-uv pip install --python .venv/bin/python -e external/TileFoundry cmake ninja
+SUITE=...   # the checkout or cache root containing skills/ and external/
+PYTHONPATH="$SUITE/external/TileFoundry/src" python -m tilefoundry.cli --help
+```
+
+Install it editable into the environment that will run it:
+
+```bash
+<env>/bin/python -m pip install -e "$SUITE/external/TileFoundry" cmake ninja
+# or: uv pip install --python <env>/bin/python -e "$SUITE/external/TileFoundry" cmake ninja
+```
+
+Verify the checkout is at the suite's pin; update by checking out the recorded
+gitlink, never by tracking upstream main:
+
+```bash
+test "$(git -C "$SUITE/external/TileFoundry" rev-parse HEAD)" \
+   = "$(git -C "$SUITE" rev-parse HEAD:external/TileFoundry)" \
+  || git -C "$SUITE" submodule update --init --recursive -- external/TileFoundry
 ```
 
 Bump the pin deliberately and re-verify the workflow at each new commit — the
@@ -157,9 +180,9 @@ HTML memory timelines. Text layout inspection and JSON memory export work
 without it. The tensor-lifetime SVG renderer uses only the Python standard
 library. CUDA toolkit tools, Compute Sanitizer, Nsight Compute, and Nsight
 Systems are external installations, outside these pip requirements.
-TileFoundry is also optional and intentionally omitted: follow its skill's
-compatibility check and dependency gate before installing it into a separate or
-existing environment.
+TileFoundry's source ships with the suite (see [TileFoundry](#tilefoundry));
+installing it into a Python environment remains explicit, so follow its skill's
+compatibility check before adding its dependencies to an existing environment.
 
 ## CUDA skill
 

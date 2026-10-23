@@ -38,6 +38,10 @@ copy.
   from `requirements.txt`. Init:
   `git submodule update --init external/TileFoundry` then
   `git -C external/TileFoundry submodule update --init third_party/cutlass`.
+- `scripts/install-skills.sh` also ships TileFoundry: it checks out the pinned
+  submodule (recursive, including CUTLASS) in checkout and cache modes and
+  prints the source path and install commands. It never updates TileFoundry to
+  upstream main; the gitlink is the pin.
 - Put `.venv/bin` on `PATH` when a test or CLI shells out to the build tools:
   `PATH=$PWD/.venv/bin:$PATH .venv/bin/python -m pytest ...`. Without it,
   `link_modules` fails with `'cmake' not on PATH` even though cmake is
@@ -65,7 +69,9 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
    `warps_per_group` reduce-dispatch bug are fixed by #258/#257; #240 merged;
    #241/#237 closed; the TMA/WGMMA/`Where` emitter gaps remain, tracked as
    #249).
-2. **Checkout the new SHA** (detached) in `external/TileFoundry`.
+2. **Checkout the new SHA** (detached) in `external/TileFoundry`, then
+   `git -C external/TileFoundry submodule update --init --recursive
+   third_party/cutlass` so the CUDA backend has its headers.
 3. **Probe harness:** `./evals/tilefoundry-capability-map/run_probes.sh` →
    expect `12/12 PASS` (exits non-zero on any DIFF). If a DIFF is an upstream
    *improvement* (e.g. better error text), read the new output, update the

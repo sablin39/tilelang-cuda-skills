@@ -10,6 +10,10 @@
 # the files instead. Project scope installs into the current working directory;
 # run it from the task project's root.
 #
+# The script also ships TileFoundry: it checks out the pinned submodule and its
+# CUTLASS dependency at the suite's recorded gitlink and prints the commands
+# that run or install it. It never updates TileFoundry to upstream main.
+#
 # The script also runs standalone, fetched without cloning the suite:
 #   curl -fsSL https://raw.githubusercontent.com/sablin39/tilelang-cuda-skills/main/scripts/install-skills.sh | bash -s -- --scope global
 # It then clones the suite into $SUITE_CACHE (default ~/.local/share/
@@ -72,6 +76,33 @@ if [ ! -d "$SKILLS_SRC" ]; then
   else
     echo "Fetching the skill suite into $SUITE_CACHE ..."
     git clone --depth 1 --branch "$SUITE_REF" "$SUITE_URL" "$SUITE_CACHE"
+  fi
+fi
+
+# --- TileFoundry: ship the pinned source -------------------------------------
+# The suite records TileFoundry as a submodule and the gitlink is the pin.
+# Check out exactly that commit, with its CUTLASS dependency, and report it.
+# Never `--remote`: the suite must not track upstream main.
+TF="$SUITE_ROOT/external/TileFoundry"
+tf_pin="$(git -C "$SUITE_ROOT" rev-parse HEAD:external/TileFoundry 2>/dev/null || true)"
+tf_head() { git -C "$TF" rev-parse HEAD 2>/dev/null || true; }
+
+if [ -z "$tf_pin" ]; then
+  warn "no TileFoundry gitlink at $SUITE_ROOT; installing the skills without the pinned source"
+else
+  tf_now="$(tf_head)"
+  if [ "$tf_now" = "$tf_pin" ] && [ -f "$TF/src/tilefoundry/__init__.py" ]; then
+    echo "TileFoundry: $TF @ ${tf_pin:0:12} (pinned)"
+  elif [ "$check_only" -eq 1 ]; then
+    echo "TileFoundry: $TF — not at pin ${tf_pin:0:12} (have ${tf_now:-none})"
+  else
+    echo "Checking out TileFoundry at ${tf_pin:0:12} (with third_party/cutlass) ..."
+    git -C "$SUITE_ROOT" submodule update --init --recursive -- external/TileFoundry \
+      || { echo "ERROR: TileFoundry checkout failed" >&2; exit 1; }
+    tf_now="$(tf_head)"
+    [ "$tf_now" = "$tf_pin" ] \
+      || { echo "ERROR: TileFoundry is not at pin ${tf_pin:0:12} after update" >&2; exit 1; }
+    echo "TileFoundry: $TF @ ${tf_pin:0:12} (pinned)"
   fi
 fi
 
@@ -247,3 +278,16 @@ skills directory; the suite's skills invoke it by name.
 Symlinked installs track this repo; rerun with --copy for a snapshot, and rerun
 after renaming or adding skills under skills/.
 EOF
+
+if [ -n "${tf_pin:-}" ]; then
+  cat <<EOF
+
+TileFoundry: $TF @ ${tf_pin:0:12} (pinned). The designated distribution is this
+source checkout, not the PyPI wheel, which ships no CUDA headers.
+  Run the CLI without installing:
+    PYTHONPATH="$TF/src" python -m tilefoundry.cli --help
+  Install editable into the environment that will run it:
+    <env>/bin/python -m pip install -e "$TF" cmake ninja
+    uv pip install --python <env>/bin/python -e "$TF" cmake ninja
+EOF
+fi

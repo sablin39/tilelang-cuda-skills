@@ -27,33 +27,56 @@ kernel-speed tool.
 
 ## Use the vendored checkout
 
-This suite vendors TileFoundry as a submodule at
-[external/TileFoundry](../../../external/TileFoundry), pinned to a recorded
-upstream commit, and installs it
-editable into the suite's `.venv`:
+The suite ships TileFoundry as a pinned submodule. The installer checks out
+that source — including its `third_party/cutlass` submodule — and prints the
+path and install commands; it never updates TileFoundry to upstream main.
+
+Find the source:
+1. `$TILEFOUNDRY_ROOT` when set.
+2. If this skill is symlinked, resolve it: `readlink -f` the skill directory,
+   take its grandparent (the suite checkout or cache root), then
+   `external/TileFoundry`.
+3. Otherwise the default cache `~/.local/share/tilelang-cuda-skills` (or
+   `$SUITE_CACHE`), then `external/TileFoundry`.
+
+Verify it is at the suite's pin, and repair by checking out the recorded
+gitlink (never `--remote`):
 
 ```bash
-git submodule update --init external/TileFoundry
-git -C external/TileFoundry submodule update --init third_party/cutlass
-uv pip install --python .venv/bin/python -e external/TileFoundry cmake ninja
+SUITE=...                       # root containing skills/ and external/
+TF="$SUITE/external/TileFoundry"
+test "$(git -C "$TF" rev-parse HEAD)" = "$(git -C "$SUITE" rev-parse HEAD:external/TileFoundry)" \
+  || git -C "$SUITE" submodule update --init --recursive -- external/TileFoundry
+```
+
+Run the CLI without installing it into an environment:
+
+```bash
+PYTHONPATH="$TF/src" python -m tilefoundry.cli --help
+```
+
+Install it editable into the environment that will run it:
+
+```bash
+<env>/bin/python -m pip install -e "$TF" cmake ninja
+# or: uv pip install --python <env>/bin/python -e "$TF" cmake ninja
 ```
 
 Editable-from-source is required, not a convenience: the CUDA backend resolves
 `include/tilefoundry/runtime.h` and CUTLASS relative to a source checkout, and
-the PyPI wheel ships neither (verified 2026-10-15 on 0.0.3.dev38), so
-`tilefoundry.compile()` cannot build a kernel from a wheel install. The
-`third_party/cutlass` submodule must be initialized or every kernel build fails
-on `cute/tensor.hpp`. `cmake`/`ninja` must be on `PATH` for the same reason.
+the PyPI wheel ships neither, so `tilefoundry.compile()` cannot build a kernel
+from a wheel install. The `third_party/cutlass` submodule must be initialized
+or every kernel build fails on `cute/tensor.hpp`. `cmake`/`ninja` must be on
+`PATH` for the same reason.
 
 The editable install's version string comes from git metadata; a shallow
 submodule clone reports `0.1.dev1+g<sha>` instead of the true release line.
 Record the submodule's pinned commit, not the string.
 
 TileFoundry requires Python 3.12+ and pulls a substantial dependency set
-(ISL, OR-Tools, Transformers, Graphviz, Apache TVM FFI). On 2026-10-15 the
-install into this suite's venv added `transformers 5.14.1`, `ortools 9.15`,
-and `isl-python 0.1.11` without touching torch or tilelang; re-check that
-combinations still hold whenever the submodule pin moves, and prefer
+(ISL, OR-Tools, Transformers, Graphviz, Apache TVM FFI). Installing it into an
+existing environment adds those without replacing torch or tilelang; re-check
+the combination when the environment changes, and prefer
 `uv pip install --index-url <mirror>` when PyPI reachability is poor.
 
 Probe the active interpreter and CLI before relying on them:
@@ -62,11 +85,13 @@ Probe the active interpreter and CLI before relying on them:
 python --version
 tilefoundry --version
 tilefoundry
+# without installing: PYTHONPATH="$TF/src" python -m tilefoundry.cli --help
 ```
 
-Do not add TileFoundry to this suite's default requirements merely to perform
-ordinary TileLang work. Record the pinned commit, Python version, and target
-named by the authored module.
+The source ships with the suite; installing it into a Python environment stays
+explicit. Do not add TileFoundry to the suite's default requirements merely to
+perform ordinary TileLang work. Record the pinned commit, Python version, and
+target named by the authored module.
 
 ## Use the CLI as the primary interface
 
