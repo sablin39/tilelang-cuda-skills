@@ -179,6 +179,15 @@ which features it relies on. Architecture coverage depends on the checkout — e
 architecture exists; a missing one is added explicitly with
 `tilefoundry target add`, never assumed.
 
+Verification and `tf.schedule` admit each instruction against that capability
+list: an instruction whose declared capability the architecture does not list
+is refused with `<instruction> needs <capability>, which <target> does not
+list`, before codegen or ptxas. The sm_90 documents declare the bulk-copy and
+mbarrier transaction forms; sm_89 does not, so a TIR program using them fails
+at admission with that message instead of later. A hand-written document must
+list the capabilities its instructions use; cloning a same-architecture
+product keeps them (verified 2026-10-23 at `bb3b726`).
+
 Registering a target for the attached GPU (recipe verified 2026-10-16 at the
 pinned commit):
 
@@ -259,17 +268,19 @@ kernel measured at 79% of DRAM peak lands within ~4% of its measured time.
 
 ## Analyze the authored design
 
-Write analysis to a named artifact:
+Write analysis to a named artifact (omit `PATH` to print to stdout):
 
 ```bash
 tilefoundry analyze path/to/model.py:ModuleName artifacts/model-analysis.txt \
   --compute-cost --memory --roofline --operands
 ```
 
-Bind every open dimension needed by the selection with `--dim NAME=VALUE`.
+Bind every open dimension needed by the selection with `--dim NAME=VALUE`;
+dimensions declared only by a callee are bound through the same instantiation.
 Read the report at both levels: its header summarizes the selected function and
 target; annotations on each HIR operation show where work, traffic, footprint,
-or predicted scheduling arises.
+or predicted scheduling arises; the performance summary states
+`wave=active/physical`.
 
 Interpret each family by what it is actually worth (trust table verified
 2026-10-16 at the pinned commit, cross-checked against ncu and torch.profiler
@@ -344,12 +355,18 @@ vendored checkout unless said otherwise):
   emitter bugs from the 2026-10-15 drive are upstream (#240); and the runtime
   reduce dispatch's `warps_per_group` miscount for composed cta×thread meshes
   is fixed at `bb3b726` (#257: per-level lane budget, workspace sized from the
-  thread level). Its executable tests pass at this pin — copy, reduce, and
-  staged-ring, 17 tests, 2026-10-23. The tutorial RMSNorm variants are not
+  thread level). The lowered-TIR path now emits pointers sliced through
+  `TupleGetItem`, nested layouts, and staged rings; its executable tests pass
+  at this pin — copy, reduce, and staged-ring, 17 tests, 2026-10-23. The
+  tutorial RMSNorm variants are not
   finalizable as authored (the optimize `Fused` needs explicit instruction
   selection; the migrate fixed program has no lexical mesh), so the old
   end-to-end compiled-RMSNorm drive cannot be repeated without writing the
   schedule, and no program-binary claim is made here.
+- A launch the device refuses raises `RuntimeError` from the call, naming the
+  kernel and the CUDA error; the call never returns as though the kernel ran,
+  and a fault while it runs surfaces at the next synchronizing CUDA call
+  (verified 2026-10-23 at `bb3b726`).
 
 Treat `compile()` as experimental: fine for op-level probes, not a measured
 floor and not the implementation route. Upstream's own flagship example

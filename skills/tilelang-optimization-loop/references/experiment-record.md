@@ -28,6 +28,11 @@ the decision without reconstructing the conversation.
     "unit": "ms",
     "results": "runs/c02/timings.json"
   },
+  "model": {
+    "ideal": "<saturated bound: analyze ideal-ns or measured rates>",
+    "real": "<measured two-bound recipe>",
+    "measured_over_floor": "<measured / real>"
+  },
   "decision": "reject",
   "reason": "Validation passed, but the aggregate workload objective regressed beyond measured variation.",
   "next": "Keep c01; investigate whether the added storage reduced residency before increasing stages again."
@@ -38,7 +43,9 @@ Use observed values in the referenced per-case timing results. Keep baseline,
 current best, and candidate measurements distinguishable. Record compile/runtime
 errors as failures, and missing execution as unrun/blocked; do not write dummy
 latency values or a passing status for those cases. An unchanged source file
-with a different configuration is still a distinct candidate identity.
+with a different configuration is still a distinct candidate identity. When a
+stage was modeled, record both bounds and `measured / floor`; the
+[cost model](cost-model.md) defines them.
 
 The plan answers **what to try next and why**. The candidate record answers
 **what actually happened and why it was kept or rejected**. A successful

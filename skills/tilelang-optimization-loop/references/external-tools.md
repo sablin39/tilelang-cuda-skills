@@ -247,10 +247,15 @@ dispatch are fixed upstream: #258 (pricing by the running mesh and the
 footprint, `wave=active/physical`, dim binding through `instantiate`, CLI and
 report polish) and #257 (per-level reduce planning and lowered-TIR memory
 views) are merged, so #239, #252, #253 and the `warps_per_group` bug no longer
-reproduce. Still open: the TMA/WGMMA/`Where` emitter gaps (#249). Probe
-harness 12/12 PASS after re-deriving the five costing fingerprints; the
-tutorial floor is now `ideal-ns=3755`, the two trust-table spot checks are
-unchanged (`125063` / `143256`), and the runtime twin PASSes.
+reproduce. The same window adds launch-refusal errors that name the kernel and
+the CUDA error (#256), instruction-capability admission that refuses an
+instruction the target does not list with `<instruction> needs <capability>,
+which <target> does not list` (#262), the sm_89 architecture with its e4m3
+warp MMA (#259/#261), and a cp.async vector-layout fix (#263). Still open:
+the TMA/WGMMA/`Where` emitter gaps (#249). Probe harness 12/12 PASS after
+re-deriving the five costing fingerprints; the tutorial floor is now
+`ideal-ns=3755`, the two trust-table spot checks are unchanged (`125063` /
+`143256`), and the runtime twin PASSes.
 
 Preserve upstream notices and artifact provenance when incorporating files.
 KernelWiki ships as a standalone skill; the NCU dependency and task-harness
