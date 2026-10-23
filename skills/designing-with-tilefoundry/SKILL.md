@@ -29,7 +29,7 @@ kernel-speed tool.
 
 This suite vendors TileFoundry as a submodule at
 [external/TileFoundry](../../../external/TileFoundry), pinned to a recorded
-upstream commit (currently main @ `bb3b726`), and installs it
+upstream commit, and installs it
 editable into the suite's `.venv`:
 
 ```bash
@@ -152,9 +152,6 @@ reports drift between releases and the DSL itself has broken shipped examples
 within days (the `rmem_layout=` schedule attribute was removed two days after
 the flagship example that used it was verified). The commands are the
 contract — rerun them and read what the pinned checkout actually prints.
-This workflow was verified against the vendored submodule at `25fbbaa`
-(2026-10-20); the `bb3b726` bump (2026-10-23) re-ran its tutorial analysis,
-runtime twin, probes, and upstream copy/reduce tests, not every step.
 
 ## Select the target by SM capability
 
@@ -186,7 +183,7 @@ list`, before codegen or ptxas. The sm_90 documents declare the bulk-copy and
 mbarrier transaction forms; sm_89 does not, so a TIR program using them fails
 at admission with that message instead of later. A hand-written document must
 list the capabilities its instructions use; cloning a same-architecture
-product keeps them (verified 2026-10-23 at `bb3b726`).
+product keeps them.
 
 Registering a target for the attached GPU (recipe verified 2026-10-16 at the
 pinned commit):
@@ -312,19 +309,17 @@ service rates: compute and movement overlap *within* one op
 (duration = max of the two), occurrences with disjoint buffers may overlap,
 but loop trips run in lockstep (`trips × stride_ns`) — cross-trip software
 pipelining (the TMA-ring/WGMMA prefetch idiom) is invisible to it by
-construction. At `bb3b726` it prices the mesh that runs:
+construction. It prices the mesh that runs:
 `active = min(mesh positions, physical units)`, the bandwidth-level share is
 the footprint window over those positions, the per-CTA rate is capped by
 Little's law over the in-flight bytes the program states, and the summary
-reports `wave=active/physical`. The two older defects — `insert_slice`/
-`tf.zeros` billed per position and a partially filled launch reporting as a
-full one — are fixed; the pinned evidence of the old behavior is historical
-(2026-10-16..20). What remains unseen is **achieved residency** (registers and
-actual resident CTAs), dependent-chain latency, and pipeline overlap: the cap
-uses modeled in-flight bytes and a published latency, not a measurement. The
-spec still states performance "MUST NOT be read as a guarantee about physical
-occupancy". Use `--performance` for structure and for the static fill; when
-residency, latency, or pipeline structure decides the winner, use the
+reports `wave=active/physical`. What remains unseen is **achieved residency**
+(registers and actual resident CTAs), dependent-chain latency, and pipeline
+overlap: the cap uses modeled in-flight bytes and a published latency, not a
+measurement. The spec still states performance "MUST NOT be read as a
+guarantee about physical occupancy". Use `--performance` for structure and for
+the static fill; when residency, latency, or pipeline structure decides the
+winner, use the
 [measured two-bound recipe](../tilelang-optimization-loop/references/cost-model.md)
 and the benchmark.
 
@@ -351,22 +346,20 @@ vendored checkout unless said otherwise):
   2026-10-08).
 - But there is still no supported path from a scheduled tutorial HIR to a
   correct program binary. The TMA op `T.copy_async_tensor` has no emitter by
-  design, so the schedule tutorial's "optimal" GEMM cannot compile; the four
-  emitter bugs from the 2026-10-15 drive are upstream (#240); and the runtime
-  reduce dispatch's `warps_per_group` miscount for composed cta×thread meshes
-  is fixed at `bb3b726` (#257: per-level lane budget, workspace sized from the
-  thread level). The lowered-TIR path now emits pointers sliced through
-  `TupleGetItem`, nested layouts, and staged rings; its executable tests pass
-  at this pin — copy, reduce, and staged-ring, 17 tests, 2026-10-23. The
-  tutorial RMSNorm variants are not
+  design, so the schedule tutorial's "optimal" GEMM cannot compile; earlier
+  emitter bugs are fixed upstream; and the runtime reduce dispatch's
+  `warps_per_group` miscount for composed cta×thread meshes is fixed
+  (per-level lane budget, workspace sized from the thread level). The
+  lowered-TIR path now emits pointers sliced through `TupleGetItem`, nested
+  layouts, and staged rings; its executable tests pass — copy, reduce, and
+  staged-ring. The tutorial RMSNorm variants are not
   finalizable as authored (the optimize `Fused` needs explicit instruction
   selection; the migrate fixed program has no lexical mesh), so the old
   end-to-end compiled-RMSNorm drive cannot be repeated without writing the
   schedule, and no program-binary claim is made here.
 - A launch the device refuses raises `RuntimeError` from the call, naming the
   kernel and the CUDA error; the call never returns as though the kernel ran,
-  and a fault while it runs surfaces at the next synchronizing CUDA call
-  (verified 2026-10-23 at `bb3b726`).
+  and a fault while it runs surfaces at the next synchronizing CUDA call.
 
 Treat `compile()` as experimental: fine for op-level probes, not a measured
 floor and not the implementation route. Upstream's own flagship example
@@ -374,9 +367,8 @@ floor and not the implementation route. Upstream's own flagship example
 reported 1–10% faster than SGLang 0.5.21) does not use it either — TileFoundry
 authors/checks/analyzes/schedules/finalizes, and TileLang kernels implement
 the finalized TIR. That is the integration shape to copy. The example's own
-artifacts were verified against `f8fd71e` and no longer parse on later main
-(the `rmem_layout=` attribute was removed); read them at our pin, run them at
-theirs.
+artifacts predate the removed `rmem_layout=` attribute and no longer parse on
+later main; read them at our pin, run them at theirs.
 
 ## Check the runtime twin
 

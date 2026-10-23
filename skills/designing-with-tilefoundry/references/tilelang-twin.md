@@ -2,9 +2,8 @@
 
 A verified pattern for making a TileLang kernel the runtime twin of an authored
 TileFoundry Module, so `tilefoundry check` judges it against the HIR evaluator.
-Verified against tilefoundry 0.0.2 with tilelang 0.1.14, and again against the
-vendored main checkout (`25fbbaa`, 2026-10-20) with tilelang 0.1.15 — `equal`
-agreement on the fp8 output and `allclose` on the f32 scale, both times.
+Verified on the vendored checkout with tilelang 0.1.15 — `equal` agreement on
+the fp8 output and `allclose` on the f32 scale.
 
 The example twins the fused step from `tilefoundry tutorial optimize`: RMSNorm
 followed by per-block FP8 quantization. The authored module (`Fused`, in the

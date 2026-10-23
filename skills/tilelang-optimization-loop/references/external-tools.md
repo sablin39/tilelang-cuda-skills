@@ -170,92 +170,36 @@ Inspected on 2026-09-11:
   correctness/benchmark runner in the inspected first-party tree. Its pins
   differ from the standalone repositories reviewed above.
 
-TileFoundry was inspected separately on 2026-09-15 at
-[tile-ai/TileFoundry `2af2364`](https://github.com/tile-ai/TileFoundry/tree/2af2364d53f262946b7f07643583262f3abd2d76).
-In an isolated Python 3.12 environment, its CLI catalog/spec/tutorial, H200
-RMSNorm compute/memory/roofline/performance analysis, CPU evaluator/runtime-twin
-check, DOT builder, and local interactive viewer endpoints were exercised. The
-viewer fetched and verified its pinned Graphviz-WASM and D3 assets. After eight
-NVIDIA L20Z devices became visible, the targeted 34-test subset passed and a
-synchronized PyTorch FP16 CUDA matrix multiplication completed on device 0. No
-TileFoundry-generated CUDA kernel was compiled or timed in this review.
+TileFoundry was reviewed separately. Its CLI catalog/spec/tutorial, H200 RMSNorm
+compute/memory/roofline/performance analysis, CPU evaluator/runtime-twin check,
+DOT builder, and local interactive viewer endpoints were exercised; on the
+suite GPU a synchronized PyTorch FP16 CUDA matrix multiplication completed. No
+TileFoundry-generated CUDA kernel was compiled or timed in that review.
 
-A full cold start was exercised on 2026-10-08 (tilefoundry 0.0.2, tilelang
-0.1.15, L20Z): a fused-vs-split residual-add+RMSNorm pair was taken from a
-PyTorch reference through authored HIR variants, `analyze` diffs, pure-torch
-and TileLang runtime-twin checks, and `do_bench` measurement. The static
-traffic diff (1.67×) predicted the direction and memory-bound diagnosis; the
-measured latency ratio was 1.31× (torch.compile) and 1.42× (TileLang), and the
-fused TileLang kernel reached 1.55× the compiled baseline. The `compile()`
-HIR→CUDA backend was found unusable as a measured floor in 0.0.2 (no MeshScope
-lowering, runtime headers missing from the wheel, demo-quality codegen).
+Current status of the vendored checkout:
 
-Upstream main was re-checked on the same day ([`f71ed0e`](https://github.com/tile-ai/TileFoundry/tree/f71ed0e7789648ce408af623383b8f039ed90605),
-0.0.3.dev28): the new `schedule candidates/facts/finalize` surface lowers
-fully-scheduled HIR to verified TIR and handwritten TIR compiles to real CUDA,
-but lowered-HIR compile remains broken (two emitter gaps), the wheel still
-ships no runtime headers, and `analyze`'s report format changed. The skills
-stay pinned to 0.0.2 pending the next release tag; evidence lives in the task
-workspace's `artifacts/upstream-main/`.
-
-Re-checked again at [`5f346a2`](https://github.com/tile-ai/TileFoundry/tree/5f346a285158b47e92d29d2c19e76b5dc3ff48a6)
-(0.0.3.dev38, 2026-10-15) with an end-to-end `compile()` drive. Mesh-capable
-lowering now works (the f71ed0e-era blocker is gone; upstream suite 474/474,
-including with four small local emitter patches applied). Still open: the
-wheel ships no `runtime.h`; `T.copy_async_tensor` has no emitter by design, so
-the tutorial's "optimal" GEMM schedule cannot compile; same-day commit
-`a64ec82` introduced four emitter bugs (slice-coordinate rendering, MeshCoord
-coordinates, missing `Cast` emitter, `Fill` on kernel params — all patched and
-validated locally) and removed the `rmem_layout=` attribute, breaking the
-two-day-old flagship `examples/qwen3_8_27b_prefill-tilelang` artifacts on main
-(pin that example to `f8fd71e`). With the patches plus a hand-added `T.reduce`
-smem workspace, a scheduled RMSNorm compiles but the binary reads smem out of
-bounds — the runtime reduce dispatch mis-counts `warps_per_group` for the
-composed cta×thread mesh that multi-CTA finalize always produces. The Qwen
-example itself confirms the supported integration: TileFoundry for
-HIR/check/analyze/schedule/finalize, TileLang kernels implementing the
-finalized TIR — `compile()` unused.
-
-Later on 2026-10-15 the suite vendored TileFoundry as the
-`external/TileFoundry` submodule, pinned at `5f346a2`, and installed it
-editable into the suite `.venv` (with `cmake`/`ninja` and the
-`third_party/cutlass` submodule initialized). That resolves the header problem
-for this suite — op-level `compile()` builds and runs pass on the suite GPU —
-and the `designing-with-tilefoundry` skill was re-verified against the pin
-(CLI surface, tutorial extraction, described models, targets, predicates, DOT
-and Viewer imports, the TileLang runtime-twin check PASS with tilelang
-0.1.15). Two 0.0.2-era DSL notes were dropped as obsolete (`tf.local` is
-removed; the `ShardMesh` verbose shard form no longer imports), and the
-shared-weight shard gap persists in a new form with the scheduled-copy idiom
-as its answer. The pin policy: bump the submodule deliberately, re-run the
-skill's probes at each new pin, and never track main blindly — upstream broke
-its own flagship example within two days.
-
-Bumped to `25fbbaa` (#246) on 2026-10-20. The four local emitter patches are
-now upstream (merged as `a5501c9`, PR tile-ai/TileFoundry#240), and the
-opaque finalize error is fixed (#241, closing #237): `schedule finalize` now
-names the unscheduled site, lists its instruction candidates, and points at
-`tf.schedule` as the remedy. Still open: #239 (the `insert_slice`/`tf.zeros`
-per-position billing and lane under-fill — predicted-ns numbers are
-byte-identical at the new pin, so the ranking-inversion warning stands), the
-TMA/WGMMA/`Where` emitter gaps, and the `warps_per_group` reduce-dispatch
-bug. Probe harness 12/12 PASS at the new pin; trust-table spot checks
-byte-identical.
-
-Bumped to `bb3b726` on 2026-10-23. The analysis artifacts and the reduce
-dispatch are fixed upstream: #258 (pricing by the running mesh and the
-footprint, `wave=active/physical`, dim binding through `instantiate`, CLI and
-report polish) and #257 (per-level reduce planning and lowered-TIR memory
-views) are merged, so #239, #252, #253 and the `warps_per_group` bug no longer
-reproduce. The same window adds launch-refusal errors that name the kernel and
-the CUDA error (#256), instruction-capability admission that refuses an
-instruction the target does not list with `<instruction> needs <capability>,
-which <target> does not list` (#262), the sm_89 architecture with its e4m3
-warp MMA (#259/#261), and a cp.async vector-layout fix (#263). Still open:
-the TMA/WGMMA/`Where` emitter gaps (#249). Probe harness 12/12 PASS after
-re-deriving the five costing fingerprints; the tutorial floor is now
-`ideal-ns=3755`, the two trust-table spot checks are unchanged (`125063` /
-`143256`), and the runtime twin PASSes.
+- The analysis path is static and usable: HIR authoring, `check` against a
+  runtime twin, `analyze` (compute/memory/roofline/performance), and
+  `schedule candidates/facts/finalize`. The timeline prices the running mesh
+  (`wave=active/physical`) and the footprint's bytes, with a per-CTA
+  Little's-law cap over the stated in-flight bytes; it does not measure
+  achieved residency, chains, or pipeline overlap.
+- The `compile()` HIR→CUDA backend is not a measured floor and not the
+  implementation route. `T.copy_async_tensor` has no emitter, so the schedule
+  tutorial's "optimal" GEMM cannot compile; the tutorial RMSNorm variants are
+  not finalizable as authored (the optimize `Fused` needs explicit instruction
+  selection; the migrate fixed program has no lexical mesh). Lowered-TIR
+  views, staged rings, and the multi-CTA reduce path are covered by executable
+  upstream tests.
+- Capability admission refuses an instruction the target does not list with
+  `<instruction> needs <capability>, which <target> does not list`; a refused
+  launch raises `RuntimeError` naming the kernel and the CUDA error.
+- The supported integration is TileFoundry for
+  HIR/check/analyze/schedule/finalize with TileLang kernels implementing the
+  finalized TIR; upstream's flagship example does the same.
+- The wheel ships no runtime headers; the vendored editable install supplies
+  them. The pin policy: bump deliberately, re-run the suite's probes at each
+  new pin, never track main blindly.
 
 Preserve upstream notices and artifact provenance when incorporating files.
 KernelWiki ships as a standalone skill; the NCU dependency and task-harness

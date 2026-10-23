@@ -94,8 +94,9 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
    `ideal-ns=143256 bound-by=compute`.
 6. **Sweep the skills for staleness.** `grep -rn <old-sha> skills/`; also hunt
    behavioral claims the release changed (error texts, emitter status, CLI
-   flags). Update pin lines and add the verification date. Keep historical
-   entries historical — append a dated paragraph, don't rewrite the record.
+   flags). Skills state current behavior only: rewrite the claim and drop any
+   commit hash, PR number, or bump paragraph. The pin, its delta, and the
+   verification dates live in this file and the local eval records.
 7. **Refresh the eval docs** (untracked local records):
    `evals/tilefoundry-capability-map/{ISSUES,REPRO,CAPABILITIES}.md` headers —
    what got fixed, what still reproduces, at which SHA, on what date.
@@ -106,11 +107,10 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
 ## Updating skills from eval findings
 
 - Findings originate in `evals/` task workspaces; fold them into skills as
-  *conclusions* (mechanism, command, verification tag) — never as paths.
-- Every verification claim carries its date and pin/version. When re-verifying,
-  update both; when behavior changes upstream, say what changed and when.
-- Cite upstream issues/PRs by number (`tile-ai/TileFoundry#239`) so the next
-  bump can check their status quickly.
+  *conclusions* (mechanism, command, current behavior) — never as paths.
+- Provenance (verification date, pin, upstream issue/PR numbers) lives in this
+  file and the local eval records, not in delivered skills. Skills state what
+  the tool does now; they do not carry a changelog.
 - `scripts/install-skills.sh` symlinks skills into `~/.agents/skills` (and
   mirrors for other CLIs), so content edits go live immediately; rerun the
   installer only after adding or renaming a skill directory. KernelWiki is a
@@ -176,16 +176,17 @@ survive a take-over:
 
 - After a take-over or a model rewrite, sweep every claim in `skills/` that
   asserted the old behavior. A merged fix flips a "known bug" invariant into
-  "fixed at pin X"; a changed model flips a cost claim. Update conclusion,
-  date, and pin together, and keep the historical note.
+  "fixed"; a changed model flips a cost claim. Update the conclusion to the
+  current behavior; the pin, date, and delta stay in this file and the local
+  records.
 - Record the boundary the new model states, not just its headline: what it
   prices, at which level, against whose rates, and what it still cannot see.
   A conclusion without its model becomes the next stale claim.
 - Where the upstream solution differs from what this suite teaches, teach the
   upstream model and state the rejected alternative in one line. The gap is
   the lesson; do not keep our version as if it had won.
-- Never cite local evidence paths in the delivered suite; the conclusion, its
-  date, and the pin are the citation.
+- Never cite local evidence paths in the delivered suite; the conclusion
+  stands on its own, and its provenance is recorded here.
 
 ## Trust invariants the skills assert — keep them true
 

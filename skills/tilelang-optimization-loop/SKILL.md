@@ -66,21 +66,17 @@ the contract and the plan:
 Record these as modeled design evidence; the emitted TileLang lowering and
 measured GPU result remain separate acceptance gates. Rank HIR variants by
 logical traffic/FLOP diffs, capacity advisories, and roofline floors.
-`analyze --performance` is a modeled plan, not a measured floor: at `bb3b726`
-it prices the mesh that runs (`wave=active/physical`) and the footprint's bytes
-at the bandwidth level, with a per-CTA Little's-law cap over the in-flight
-bytes the program states — the per-position billing and invisible lane
-under-fill that made older pins untrustworthy are gone. What it still cannot
-see is achieved residency, dependent-chain latency, and pipeline overlap; when
-a decision turns on those, use the measured two-bound recipe in
-[the cost model](references/cost-model.md) and keep the benchmark as the
-verdict. Historical: at `5f346a2` and `25fbbaa` the timeline billed
-`insert_slice`/`tf.zeros` per position and read a partially filled launch as a
-full one, so it named the wrong winner on an occupancy-gated scan (verified
-2026-10-16). Do not introduce TileFoundry solely to tune an isolated,
-already-defined `PrimFunc`, and do not rely on TileFoundry's own `compile()`
-CUDA backend as a measured floor — it remains experimental (TMA/WGMMA emitter
-gaps); see the TileFoundry design skill for its status at the active pin.
+`analyze --performance` is a modeled plan, not a measured floor: it prices the
+mesh that runs (`wave=active/physical`) and the footprint's bytes at the
+bandwidth level, with a per-CTA Little's-law cap over the in-flight bytes the
+program states. What it still cannot see is achieved residency, dependent-chain
+latency, and pipeline overlap; when a decision turns on those, use the measured
+two-bound recipe in [the cost model](references/cost-model.md) and keep the
+benchmark as the verdict. Do not introduce TileFoundry solely to tune an
+isolated, already-defined `PrimFunc`, and do not rely on TileFoundry's own
+`compile()` CUDA backend as a measured floor — it remains experimental
+(TMA/WGMMA emitter gaps); see the TileFoundry design skill for its status at
+the pinned checkout.
 
 ## 2. Write the draft, then an executable plan
 
