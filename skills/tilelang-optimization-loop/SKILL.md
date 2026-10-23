@@ -65,17 +65,22 @@ the contract and the plan:
 
 Record these as modeled design evidence; the emitted TileLang lowering and
 measured GPU result remain separate acceptance gates. Rank HIR variants by
-logical traffic/FLOP diffs, capacity advisories, and roofline floors — never
-by `analyze --performance` predicted nanoseconds: its timeline bills
-`insert_slice`/`tf.zeros` at whole-tensor-copy cost per update and cannot see
-mesh-lane under-fill, so it names the wrong winner in occupancy-gated regimes
-(verified 2026-10-16 on a chunk-sequential scan, 40 of 132 lanes, pin
-`5f346a2`; predicted-ns numbers byte-identical at `25fbbaa`, 2026-10-20).
-Do not introduce
-TileFoundry solely to tune an isolated, already-defined `PrimFunc`, and do not
-rely on TileFoundry's own `compile()` CUDA backend as a measured floor — it
-remains experimental (emitter gaps for scheduled programs); see the
-TileFoundry design skill for its status at the active pin.
+logical traffic/FLOP diffs, capacity advisories, and roofline floors.
+`analyze --performance` is a modeled plan, not a measured floor: at `bb3b726`
+it prices the mesh that runs (`wave=active/physical`) and the footprint's bytes
+at the bandwidth level, with a per-CTA Little's-law cap over the in-flight
+bytes the program states — the per-position billing and invisible lane
+under-fill that made older pins untrustworthy are gone. What it still cannot
+see is achieved residency, dependent-chain latency, and pipeline overlap; when
+a decision turns on those, use the measured two-bound recipe in
+[the cost model](references/cost-model.md) and keep the benchmark as the
+verdict. Historical: at `5f346a2` and `25fbbaa` the timeline billed
+`insert_slice`/`tf.zeros` per position and read a partially filled launch as a
+full one, so it named the wrong winner on an occupancy-gated scan (verified
+2026-10-16). Do not introduce TileFoundry solely to tune an isolated,
+already-defined `PrimFunc`, and do not rely on TileFoundry's own `compile()`
+CUDA backend as a measured floor — it remains experimental (TMA/WGMMA emitter
+gaps); see the TileFoundry design skill for its status at the active pin.
 
 ## 2. Write the draft, then an executable plan
 
@@ -161,8 +166,13 @@ and measurements in `benchmark.csv` or existing structured results:
 | Identity | Candidate ID, parent, source revision/hash/path, configuration, workload cases |
 | Hypothesis | Observed cost, intended change, expected lowering and runtime effect; Wiki/source locator if used |
 | Evidence | Actual lowering artifact/finding; correctness status, command, tolerances, and log |
-| Measurement | Command, scope/backend/units, baseline and candidate per-case values, variation, artifact paths |
+| Measurement | Command, scope/backend/units, baseline and candidate per-case values, variation, artifact paths; for a modeled stage, `measured / floor` and the constants it used |
 | Decision | Promote, reject, inconclusive, or blocked; reason and next experiment if any |
+
+When a stage's gap to its floor needs an explanation, the
+[cost model](references/cost-model.md) separates work, bandwidth, residency,
+and chain terms with constants measured on the attached device. It explains a
+measurement; it never replaces the benchmark.
 
 Promote only when the candidate satisfies correctness and the recorded workload
 objective/regression limits. Compare with the current best and preserve the

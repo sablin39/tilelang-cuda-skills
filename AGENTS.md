@@ -33,6 +33,10 @@ copy.
   from `requirements.txt`. Init:
   `git submodule update --init external/TileFoundry` then
   `git -C external/TileFoundry submodule update --init third_party/cutlass`.
+- Put `.venv/bin` on `PATH` when a test or CLI shells out to the build tools:
+  `PATH=$PWD/.venv/bin:$PATH .venv/bin/python -m pytest ...`. Without it,
+  `link_modules` fails with `'cmake' not on PATH` even though cmake is
+  installed in the venv.
 - `tilefoundry --version` prints a bogus shallow-clone artifact
   (`0.1.dev1+g...`). Record the **commit SHA**
   (`git -C external/TileFoundry rev-parse --short HEAD`), never that string.
@@ -47,25 +51,30 @@ copy.
 
 ## Updating the TileFoundry pin (the ritual)
 
-Current pin: `25fbbaa` (set 2026-10-20). Run every step; skip nothing.
+Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
 
 1. **Survey the delta.** `git -C external/TileFoundry fetch origin`, then
    `git log --oneline <old>..<new>` and `git diff <old>..<new> -- pyproject.toml
    .gitmodules` for dependency/submodule changes. Check what happened to the
-   tracked upstream issues/PRs (currently: #239 open = the predicted-ns billing
-   artifacts; #240 merged = our emitter fixes; #241/#237 = actionable finalize
-   errors).
+   tracked upstream issues/PRs (at this pin: #239, #252, #253 and the
+   `warps_per_group` reduce-dispatch bug are fixed by #258/#257; #240 merged;
+   #241/#237 closed; the TMA/WGMMA/`Where` emitter gaps remain, tracked as
+   #249).
 2. **Checkout the new SHA** (detached) in `external/TileFoundry`.
 3. **Probe harness:** `./evals/tilefoundry-capability-map/run_probes.sh` →
    expect `12/12 PASS` (exits non-zero on any DIFF). If a DIFF is an upstream
    *improvement* (e.g. better error text), read the new output, update the
    fingerprint in `evals/tilefoundry-capability-map/probes/expected/`, rerun.
-   Never edit fingerprints to silence a regression.
+   Never edit fingerprints to silence a regression. At `bb3b726` the five
+   I-1/I-2 fingerprints were re-derived for the new costing model (wave states
+   active/physical, the timeline prices the footprint share, the floor reads
+   footprint bytes).
 4. **Pin ritual** (proves the user-facing workflow still works):
    - Extract the tutorial programs with the awk block from
      `external/TileFoundry/docs/tutorial/optimize.md`, then
      `tilefoundry analyze rms_norm_quant.py:Fused out.txt --compute-cost
-     --memory --roofline` → expect `ideal-ns=13`.
+     --memory --roofline` → expect `ideal-ns=3755` (the tutorial now runs 132
+     CTAs; the old 13 was the pre-#258 costing).
    - One runtime-twin check, e.g. from
      `evals/tilefoundry-coldstart-20261019/cases/scan_occupancy`:
      `tilefoundry check hir/twin_tilelang.py:FastTileLang --dim C=40
@@ -74,11 +83,15 @@ Current pin: `25fbbaa` (set 2026-10-20). Run every step; skip nothing.
      --rtol 0.0078 --out 'output[1]' --fn allclose --atol 0.01 --rtol 0.0078`
      → PASS both outputs.
    - One upstream test:
-     `.venv/bin/python -m pytest external/TileFoundry/tests/ops/tir/test_copy.py -x -q`.
-5. **Trust-table spot checks** (byte-identical unless upstream changed costing):
-   scan fused (`scan_variants.py:ScanFused`, `--dim C=40`, `--performance`) →
-   `ideal-ns=125063`; GEMM scheduled (`gemm_compute/hir/scheduled.py:Scheduled`)
-   → `ideal-ns=143256 bound-by=compute`.
+     `PATH=$PWD/.venv/bin:$PATH .venv/bin/python -m pytest
+     external/TileFoundry/tests/ops/tir/test_copy.py -x -q`
+     (cmake/ninja live in `.venv/bin`; without them on PATH the test fails with
+     `link_modules: 'cmake' not on PATH`).
+5. **Trust-table spot checks** (re-derive after any costing change; at
+   `bb3b726` both are unchanged): scan fused (`scan_variants.py:ScanFused`,
+   `--dim C=40`, `--performance`) → `ideal-ns=125063`; GEMM scheduled
+   (`gemm_compute/hir/scheduled.py:GEMM_4096X4096X4096_OPTIMAL`) →
+   `ideal-ns=143256 bound-by=compute`.
 6. **Sweep the skills for staleness.** `grep -rn <old-sha> skills/`; also hunt
    behavioral claims the release changed (error texts, emitter status, CLI
    flags). Update pin lines and add the verification date. Keep historical
@@ -105,20 +118,93 @@ Current pin: `25fbbaa` (set 2026-10-20). Run every step; skip nothing.
   suite's interface to it is
   `skills/tilelang-optimization-loop/references/kernelwiki.md`.
 
+## Contributing fixes to upstream projects
+
+Upstream work is a model negotiation, not a patch delivery. Maintainers own
+the cost model, the output contract, and the vocabulary; most of what a
+contributor gets wrong is not arithmetic but the unit of account. Rules that
+survive a take-over:
+
+1. **Diagnose the model, not the number.** Ask what quantity is priced, at
+   which level, against whose rates, and what one unit of it means. A patch
+   that divides a shared cost by a position count fixes the reported instance;
+   a change that makes the model's unit of account truthful fixes the class.
+   Prefer the second and say in the PR which one it chose.
+2. **Read the normative spec before the code.** Where the project states MUSTs
+   (formats, formulas, rates), the fix must satisfy them. If it cannot without
+   changing a MUST, that is a design proposal: state the old contract, the new
+   one, and why, and expect the maintainer to decide. Keeping "make the code
+   match the spec" separate from "change the spec" is what keeps a change
+   reviewable.
+3. **Grep the vocabulary and conventions first.** Before adding a field, flag,
+   wrapper, or unit suffix, find how the project already spells it: record
+   forms, help text versus argument parser, binary prefixes, report layouts. A
+   new field on a normative line is a format change, not a bug fix.
+4. **Audit duplicate paths.** When one concept is bound, rendered, or formatted
+   in two places, unify at the seam (one instantiation, one formatter, one
+   renderer) instead of patching the path that failed and threading a new
+   parameter through its callers.
+5. **Reproduce at deployment scale, and sweep the dimension.** Size repros to
+   what the hardware runs (one wave of physical units, the real mesh
+   hierarchy), and vary the dimension the bug lives in — participation, waves,
+   tile counts — not only the reported instance. Latent bugs surface at scale.
+6. **Keep changes separable.** One concern per commit and per PR; model
+   changes apart from plumbing; a test that fails before and passes after. A
+   maintainer may take over a model-level change and keep part of the branch;
+   separable commits survive that, a monolith does not.
+7. **Read the merge, not just the approval.** When a change is taken over or
+   rewritten, diff the branch against the merged state and extract every
+   model, contract, and format decision the maintainer made. That delta is the
+   most valuable review the work will get; record it.
+8. **Verification is part of the contribution.** Scoped tests, sanitizer on
+   the touched kernels, the full suite compared against the base failure set,
+   project hooks, and an explicit list of environment-only failures. Re-run
+   after every rebase; never present an unverified tree. In the PR text, state
+   before/after evidence and stay within the project's template.
+9. **Match the layout to the medium.** A commit message is read in `git log`,
+   email, and patches: hard-wrap its prose at the conventional column and keep
+   a blank line after the subject. A PR description, issue, or review reply is
+   rendered by the forge, which does its own wrapping: write each paragraph as
+   one unbroken line, with blank lines between paragraphs and list markers for
+   parallel items. Manual hard wraps there surface as ragged short lines, and
+   extra breaks read as structure the author did not mean.
+10. **Follow the project's review mechanics.** Rebase and force-push with a
+    lease, answer each thread with evidence, resolve only threads actually
+    addressed, and never merge your own change.
+
+## Folding upstream rewrites into this suite
+
+- After a take-over or a model rewrite, sweep every claim in `skills/` that
+  asserted the old behavior. A merged fix flips a "known bug" invariant into
+  "fixed at pin X"; a changed model flips a cost claim. Update conclusion,
+  date, and pin together, and keep the historical note.
+- Record the boundary the new model states, not just its headline: what it
+  prices, at which level, against whose rates, and what it still cannot see.
+  A conclusion without its model becomes the next stale claim.
+- Where the upstream solution differs from what this suite teaches, teach the
+  upstream model and state the rejected alternative in one line. The gap is
+  the lesson; do not keep our version as if it had won.
+- Never cite local evidence paths in the delivered suite; the conclusion, its
+  date, and the pin are the citation.
+
 ## Trust invariants the skills assert — keep them true
 
-- **predicted-ns is never a verdict.** `analyze --performance` bills
-  `insert_slice`/`tf.zeros` at whole-window cost per mesh position and cannot
-  see lane under-fill (#239); it has named the wrong fusion winner. Rank HIR
-  variants by logical traffic/FLOP diffs and roofline floors; occupancy and
-  latency questions belong to ncu/torch.profiler.
+- **predicted-ns is a model, never a verdict.** At the current pin it prices
+  the running mesh (`wave=active/physical`) and the footprint's bytes, with a
+  per-CTA Little's-law cap over the in-flight bytes the program states; the
+  #239 billing and under-fill artifacts are fixed. It still does not measure
+  achieved residency, dependent-chain latency, or pipeline overlap. Rank HIR
+  variants by logical traffic/FLOP diffs and roofline floors; occupancy-gated
+  questions need the measured two-bound recipe plus ncu/torch.profiler or IKET
+  warp-lifetime.
 - **Commands are the contract.** Captured output in docs/READMEs/examples
   drifts between releases; rerun at the pinned checkout and read what it
   actually prints.
 - **TileFoundry `compile()` is not a measured floor.** Emitter gaps remain
-  (TMA / WGMMA / `Where`) plus the `warps_per_group` reduce-dispatch bug; the
-  supported integration is TileFoundry for HIR/check/analyze/schedule/finalize
-  with TileLang kernels implementing the finalized TIR.
+  (TMA / WGMMA / `Where`); the `warps_per_group` reduce-dispatch bug is fixed
+  at this pin. The supported integration is TileFoundry for
+  HIR/check/analyze/schedule/finalize with TileLang kernels implementing the
+  finalized TIR.
 - **The TileLang runtime-twin pattern** (equal/allclose predicates per output;
   `--fn ulp --max 1` for bf16 reduction-order disagreement) is the correctness
   gate for optimization candidates — keep `tilefoundry check` green after each

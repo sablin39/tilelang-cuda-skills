@@ -29,7 +29,7 @@ kernel-speed tool.
 
 This suite vendors TileFoundry as a submodule at
 [external/TileFoundry](../../../external/TileFoundry), pinned to a recorded
-upstream commit (currently main @ `25fbbaa`), and installs it
+upstream commit (currently main @ `bb3b726`), and installs it
 editable into the suite's `.venv`:
 
 ```bash
@@ -152,8 +152,9 @@ reports drift between releases and the DSL itself has broken shipped examples
 within days (the `rmem_layout=` schedule attribute was removed two days after
 the flagship example that used it was verified). The commands are the
 contract — rerun them and read what the pinned checkout actually prints.
-This workflow is verified against the vendored submodule at `25fbbaa`
-(verified 2026-10-20).
+This workflow was verified against the vendored submodule at `25fbbaa`
+(2026-10-20); the `bb3b726` bump (2026-10-23) re-ran its tutorial analysis,
+runtime twin, probes, and upstream copy/reduce tests, not every step.
 
 ## Select the target by SM capability
 
@@ -194,9 +195,12 @@ pinned commit):
    width = HBM stack count × 1024 bits) or the vendor sheet; compute
    throughputs from SM count × clock — and if the product might have cut-down
    tensor cores, measure the dense bf16 peak with one cuBLAS GEMM instead of
-   assuming the full die rate. Keep every fact's `origin`/`source`/`conditions`
-   honest: mark derived numbers with their derivation and measured ones with
-   the measurement.
+   assuming the full die rate. Record `memory.gmem.latency` (a pointer-chase
+   plateau on the device, or the vendor's figure) when it is known: the
+   per-CTA bandwidth cap is Little's law over the in-flight bytes the program
+   states divided by that latency, and a target stating none has no cap. Keep
+   every fact's `origin`/`source`/`conditions` honest: mark derived numbers
+   with their derivation and measured ones with the measurement.
 4. `tilefoundry target add --document your-device.toml` (add the architecture
    document first if the SM generation itself is new). Registration persists
    in `<sys.prefix>/share/tilefoundry/registry.toml`, digest-checked on
@@ -277,7 +281,7 @@ measurements of the analyzed variants):
 | Memory traffic/footprint | exact | Logical bytes and per-level peaks — fusion-boundary and placement diffs; this is the ranking axis |
 | Capacity errors, L2 reuse-window advisories | trust, within their coverage | They fire on the buffer stream measurement later blames — but coverage is structural, not semantic: verified 2026-10-19 that the window machinery keys on staging buffers reused *within one loop nest* and misses capacity overflow across *sibling top-level loops* (a two-pass scan's chunk-state stream crossed 2× L2 with no advisory) |
 | Roofline bound/ideal-ns | trust with a rate-correct target | The floor and its limiting resource; with the device's true HBM rate registered, the floor lands near a bandwidth-bound kernel's measured time — and near a compute-bound one: a 4096³ GEMM floor came within 0.5% of measured cuBLAS once the target document's derating note and cold-L2 compulsory reads were priced in (2026-10-19) |
-| Performance predicted-ns/waves | do not rank with it | See the warning below |
+| Performance predicted-ns/wave | modeled, not measured | A saturated-machine plan priced by the running mesh, with a per-CTA Little's-law cap over the in-flight bytes the program states; `wave=active/physical` states fill. It does not measure residency or pipeline overlap — see the warning below |
 
 Two sharpening principles, both verified against measurement (2026-10-19/20):
 
@@ -286,32 +290,32 @@ Two sharpening principles, both verified against measurement (2026-10-19/20):
   with an equally-well-optimized implementation pair; a fidelity-constrained
   pair measured a tie on the same question. When a static margin matters,
   budget the optimization effort to realize it.
-- **Whether the occupancy blind spot bites is kernel-structure ×
-  op-structure dependent, not a function of lane count.** The DPLR inversion
-  (below) needed dependent MMA chains without pipelining; a pipelined
-  elementwise scan at the same 40/132 lane fill was issue-rate-bound and the
-  static ranking's *direction* held (its magnitude did not).
+- **Whether residency decides the ranking is kernel-structure × op-structure
+  dependent, not a function of lane count.** The DPLR inversion (below) needed
+  dependent MMA chains without pipelining; a pipelined elementwise scan at the
+  same partial fill was issue-rate-bound and the static ranking's *direction*
+  held (its magnitude did not).
 
-`--performance` places operations on a CTA-local nominal timeline with fixed
-per-CTA service rates: compute and movement overlap *within* one op
+`--performance` places operations on a CTA-local nominal timeline with per-CTA
+service rates: compute and movement overlap *within* one op
 (duration = max of the two), occurrences with disjoint buffers may overlap,
 but loop trips run in lockstep (`trips × stride_ns`) — cross-trip software
 pipelining (the TMA-ring/WGMMA prefetch idiom) is invisible to it by
-construction ("what overlaps is what the program's own placement made
-independent"). Two further artifacts make its predicted nanoseconds unusable
-for ranking variants, both verified against measurement: it bills
-`insert_slice`/`tf.zeros` at whole-tensor-copy cost per update (a streaming
-output write of 40 MB was billed gigabytes, inflating one kernel's prediction
-27× over its measured time; re-confirmed on a second operator family
-2026-10-19, 55-60× over measured on both scan variants), and it cannot see
-mesh-lane under-fill — a 40-of-132-lane scan costs the same per lane as a
-full launch, `waves=1` and `wave=132/132` on every header, so in
-occupancy-gated regimes it names the wrong winner (it preferred a fused scan
-over the split that measurement showed 1.3× faster). The spec itself states
-performance "MUST NOT be read as a guarantee about physical occupancy".
-Occupancy-, latency-, and pipeline-overlap-gated questions belong to ncu and
-torch.profiler sweeps; use `--performance` output only to inspect per-op
-scheduling structure, never as the variant verdict.
+construction. At `bb3b726` it prices the mesh that runs:
+`active = min(mesh positions, physical units)`, the bandwidth-level share is
+the footprint window over those positions, the per-CTA rate is capped by
+Little's law over the in-flight bytes the program states, and the summary
+reports `wave=active/physical`. The two older defects — `insert_slice`/
+`tf.zeros` billed per position and a partially filled launch reporting as a
+full one — are fixed; the pinned evidence of the old behavior is historical
+(2026-10-16..20). What remains unseen is **achieved residency** (registers and
+actual resident CTAs), dependent-chain latency, and pipeline overlap: the cap
+uses modeled in-flight bytes and a published latency, not a measurement. The
+spec still states performance "MUST NOT be read as a guarantee about physical
+occupancy". Use `--performance` for structure and for the static fill; when
+residency, latency, or pipeline structure decides the winner, use the
+[measured two-bound recipe](../tilelang-optimization-loop/references/cost-model.md)
+and the benchmark.
 
 These are static results for the authored HIR. They do not show which TileLang
 TIR or CUDA was emitted. Use them to compare design alternatives and form
@@ -334,18 +338,18 @@ vendored checkout unless said otherwise):
 - Handwritten TIR compiles to respectable CUDA (1.11× `torch.compile` on the
   fused RMSNorm case, still 1.39× behind the TileLang kernel; measured
   2026-10-08).
-- But there is still no supported path from scheduled HIR to a correct
-  program binary. Known gaps found in one end-to-end drive: the TMA op
-  `T.copy_async_tensor` has no emitter by design, so the schedule tutorial's
-  "optimal" GEMM cannot compile at all; four emitter bugs broke ordinary
-  lowered programs (slice coordinates on Dim arithmetic, `MeshCoord`
-  coordinates, missing `Cast` emitter, `Fill` on kernel params — small fixes
-  validated against upstream's own test suite, submitted upstream as PR
-  tile-ai/TileFoundry#240); and with
-  those fixed plus a hand-added reduce workspace, the compiled RMSNorm reads
-  shared memory out of bounds because the runtime reduce dispatch mis-counts
-  `warps_per_group` for the composed cta×thread mesh that every multi-CTA
-  finalize produces.
+- But there is still no supported path from a scheduled tutorial HIR to a
+  correct program binary. The TMA op `T.copy_async_tensor` has no emitter by
+  design, so the schedule tutorial's "optimal" GEMM cannot compile; the four
+  emitter bugs from the 2026-10-15 drive are upstream (#240); and the runtime
+  reduce dispatch's `warps_per_group` miscount for composed cta×thread meshes
+  is fixed at `bb3b726` (#257: per-level lane budget, workspace sized from the
+  thread level). Its executable tests pass at this pin — copy, reduce, and
+  staged-ring, 17 tests, 2026-10-23. The tutorial RMSNorm variants are not
+  finalizable as authored (the optimize `Fused` needs explicit instruction
+  selection; the migrate fixed program has no lexical mesh), so the old
+  end-to-end compiled-RMSNorm drive cannot be repeated without writing the
+  schedule, and no program-binary claim is made here.
 
 Treat `compile()` as experimental: fine for op-level probes, not a measured
 floor and not the implementation route. Upstream's own flagship example

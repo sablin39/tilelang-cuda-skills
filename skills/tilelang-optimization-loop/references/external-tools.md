@@ -242,6 +242,16 @@ TMA/WGMMA/`Where` emitter gaps, and the `warps_per_group` reduce-dispatch
 bug. Probe harness 12/12 PASS at the new pin; trust-table spot checks
 byte-identical.
 
+Bumped to `bb3b726` on 2026-10-23. The analysis artifacts and the reduce
+dispatch are fixed upstream: #258 (pricing by the running mesh and the
+footprint, `wave=active/physical`, dim binding through `instantiate`, CLI and
+report polish) and #257 (per-level reduce planning and lowered-TIR memory
+views) are merged, so #239, #252, #253 and the `warps_per_group` bug no longer
+reproduce. Still open: the TMA/WGMMA/`Where` emitter gaps (#249). Probe
+harness 12/12 PASS after re-deriving the five costing fingerprints; the
+tutorial floor is now `ideal-ns=3755`, the two trust-table spot checks are
+unchanged (`125063` / `143256`), and the runtime twin PASSes.
+
 Preserve upstream notices and artifact provenance when incorporating files.
 KernelWiki ships as a standalone skill; the NCU dependency and task-harness
 layout above remain integration guidance. Reuse an existing task harness when
