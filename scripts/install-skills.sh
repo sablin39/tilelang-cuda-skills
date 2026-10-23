@@ -32,8 +32,14 @@
 # your network requires.
 set -euo pipefail
 
-SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILLS_SRC="$SUITE_ROOT/skills"
+# When piped (curl ... | bash), BASH_SOURCE is unset: fall through to the
+# cache path instead of deriving a suite root from the caller's directory.
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+else
+  SUITE_ROOT=""
+fi
+SKILLS_SRC="${SUITE_ROOT:+$SUITE_ROOT/skills}"
 KERNELWIKI_URL="https://github.com/mit-han-lab/KernelWiki.git"
 GLOBAL_SKILLS="$HOME/.agents/skills"
 # Standalone (curl | bash) mode: the suite is fetched into a cache and the
@@ -65,7 +71,7 @@ warn() { echo "WARNING: $*" >&2; }
 # --- Locate the suite ----------------------------------------------------------
 # When the script runs standalone (curl | bash, or a lone download), the skills
 # are not beside it; clone or update a cached checkout and install from there.
-if [ ! -d "$SKILLS_SRC" ]; then
+if [ -z "$SUITE_ROOT" ] || [ ! -d "$SKILLS_SRC" ]; then
   SUITE_ROOT="$SUITE_CACHE"
   SKILLS_SRC="$SUITE_CACHE/skills"
   if [ -d "$SUITE_CACHE/.git" ]; then
@@ -85,7 +91,10 @@ fi
 # Never `--remote`: the suite must not track upstream main.
 TF="$SUITE_ROOT/external/TileFoundry"
 tf_pin="$(git -C "$SUITE_ROOT" rev-parse HEAD:external/TileFoundry 2>/dev/null || true)"
-tf_head() { git -C "$TF" rev-parse HEAD 2>/dev/null || true; }
+tf_head() {
+  [ -e "$TF/.git" ] || return 0
+  git -C "$TF" rev-parse HEAD 2>/dev/null || true
+}
 
 if [ -z "$tf_pin" ]; then
   warn "no TileFoundry gitlink at $SUITE_ROOT; installing the skills without the pinned source"
