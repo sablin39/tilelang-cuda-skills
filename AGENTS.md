@@ -9,9 +9,9 @@ copy.
 ## Non-negotiable rules
 
 1. **Delivery boundary.** Tracked files — above all anything in `skills/` —
-   must never reference `evals/` paths. Skill docs state conclusions with a
-   `(verified YYYY-MM-DD, pin/version)` tag; the evidence behind them lives in
-   `evals/` as local records. Before every commit and push:
+   must never reference `evals/` paths. Skill docs state conclusions as
+   current behavior; provenance (dates, pins, issue/PR numbers) lives in this
+   file and the local records. Before every commit and push:
    `git grep -n "evals/" -- . ':!evals' ':!AGENTS.md'` must print nothing.
    (This AGENTS.md is maintainer-facing and is the one allowed exception:
    it names `evals/` paths because its reader has the full checkout.)
@@ -24,6 +24,11 @@ copy.
    enables `--remote` tip-tracking, the opposite of pinning). Bump
    deliberately, re-verify, then commit. Upstream has broken its own flagship
    example within two days.
+4. **No changelog in the suite.** Delivered skills state current behavior only.
+   Do not add commit hashes, PR/issue numbers, "bumped on" paragraphs, or
+   verification-date walls to `skills/`. Write the delta in the commit message
+   instead: what changed upstream, what was re-verified, and what still
+   reproduces. This file keeps the current pin and the tracked-issue status.
 
 ## Environment facts (save yourself rediscovery)
 
@@ -95,14 +100,16 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
 6. **Sweep the skills for staleness.** `grep -rn <old-sha> skills/`; also hunt
    behavioral claims the release changed (error texts, emitter status, CLI
    flags). Skills state current behavior only: rewrite the claim and drop any
-   commit hash, PR number, or bump paragraph. The pin, its delta, and the
-   verification dates live in this file and the local eval records.
+   commit hash, PR number, or bump paragraph. The pin and its verification
+   dates live in this file and the local eval records; the delta belongs in
+   the commit message.
 7. **Refresh the eval docs** (untracked local records):
    `evals/tilefoundry-capability-map/{ISSUES,REPRO,CAPABILITIES}.md` headers —
    what got fixed, what still reproduces, at which SHA, on what date.
-8. **Commit** the gitlink + skill docs. The message records: upstream delta
-   (commits, merged PRs), what still reproduces (issue numbers), and the
-   verification evidence (probe count, ritual results, trust-table numbers).
+8. **Commit** the gitlink + skill docs. The commit message is the changelog:
+   upstream delta (commits, merged PRs), what changed in behavior, what still
+   reproduces (issue numbers), and the verification evidence (probe count,
+   ritual results, trust-table numbers).
 
 ## Updating skills from eval findings
 
@@ -110,7 +117,8 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
   *conclusions* (mechanism, command, current behavior) — never as paths.
 - Provenance (verification date, pin, upstream issue/PR numbers) lives in this
   file and the local eval records, not in delivered skills. Skills state what
-  the tool does now; they do not carry a changelog.
+  the tool does now; they do not carry a changelog. Write the changelog in the
+  commit message.
 - `scripts/install-skills.sh` symlinks skills into `~/.agents/skills` (and
   mirrors for other CLIs), so content edits go live immediately; rerun the
   installer only after adding or renaming a skill directory. KernelWiki is a
