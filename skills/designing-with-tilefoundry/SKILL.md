@@ -281,7 +281,7 @@ measurements of the analyzed variants):
 | Memory traffic/footprint | exact | Logical bytes and per-level peaks — fusion-boundary and placement diffs; this is the ranking axis |
 | Capacity errors, L2 reuse-window advisories | trust, within their coverage | They fire on the buffer stream measurement later blames — but coverage is structural, not semantic: verified 2026-10-19 that the window machinery keys on staging buffers reused *within one loop nest* and misses capacity overflow across *sibling top-level loops* (a two-pass scan's chunk-state stream crossed 2× L2 with no advisory) |
 | Roofline bound/ideal-ns | trust with a rate-correct target | The floor and its limiting resource; with the device's true HBM rate registered, the floor lands near a bandwidth-bound kernel's measured time — and near a compute-bound one: a 4096³ GEMM floor came within 0.5% of measured cuBLAS once the target document's derating note and cold-L2 compulsory reads were priced in (2026-10-19) |
-| Performance predicted-ns/wave | modeled, not measured | A saturated-machine plan priced by the running mesh, with a per-CTA Little's-law cap over the in-flight bytes the program states; `wave=active/physical` states fill. It does not measure residency or pipeline overlap — see the warning below |
+| Performance predicted-ns/wave | modeled, not measured | A saturated-machine plan priced by the running mesh, with a per-CTA Little's-law cap over the in-flight bytes the program states; `wave=active/physical` states fill; `bound-by` names the resource class, not an achieved rate. It does not measure residency or pipeline overlap — see the warning below |
 
 Two sharpening principles, both verified against measurement (2026-10-19/20):
 

@@ -30,25 +30,44 @@ directly. Do not let the model decide a promotion; it explains a measurement.
 | `smem_per_cta`, `threads`, `regs_per_thread` | The candidate's request |
 | `r` | Residency the resources admit: `min(smem_budget / smem_per_cta, reg_budget / (threads * regs_per_thread))` |
 | `r_eff` | Resident CTAs per SM actually achieved (`r_eff <= r`) |
+| `share` | `max(1, r_eff)`; resident CTAs serialize on the SM's compute |
 | `ctas`, `waves` | Grid size and `ceil(ctas / (SM * r_eff))` |
 | `bw_sm` | Global-memory bytes/s one SM sustains at `r_eff` |
+| `bw_sm_saturated` | The most global-memory bandwidth one SM sustains, from the sweep's plateau |
 | `inflight_per_warp` | Bytes one warp keeps in flight for the access pattern |
+| `warps_per_cta` | Warps one CTA runs |
 | `latency` | End-to-end global-memory latency seen by that pattern |
-| `chain` | Dependent-latency term on one CTA's critical path |
+| `dots` | One CTA's serialized dot time in one step: `sum(t_dot(shape))`, or the step's analytical compute time when no per-dot measurement exists |
+| `chain` | Dependent-latency cost in one step beyond the dots: barriers, dependent loads. A serialized dot belongs in `dots`, not here |
 | `t_dot(shape)` | One small GEMM's time on one SM at that shape |
-| `work`, `bytes` | The stage's logical arithmetic and bytes |
 | `steps` | Serial steps each CTA runs at this stage |
+| `bytes` | Logical bytes the stage moves at the bandwidth level |
 
 ```
-ideal: t_stage = waves * steps * max( work / rate_compute , bytes / bw_sm_saturated )
-real:  t_stage = waves * steps * max( chain , bytes / (bw_sm / r_eff) )
+ideal: t_stage = waves * steps * max( share * dots , bytes / bw_sm_saturated )
+real:  t_stage = waves * steps * max( share * dots , chain , bytes / (bw_sm / r_eff) )
 real:  bw_sm    = min( bw_sm_saturated , r_eff * warps_per_cta * inflight_per_warp / latency )
 ```
 
-Report both; `real / ideal` is the part of the gap the static bound cannot see.
-For a stage dominated by small GEMMs, the work term is `sum(t_dot(shape))` over
-its dots. When the two terms compete inside `max`, the larger is the stage's
-binding term, not a verdict about the other.
+`share * dots` is the per-step compute: `dots` measured with one CTA on one SM,
+multiplied by the CTAs that share that SM. `waves` divides the grid among
+resident slots, so a compute-bound stage stays invariant to residency, as it
+should. Report both bounds; `real / ideal` is the part of the gap the static
+bound cannot see.
+
+Apply the model to a fusion boundary by comparing the products, not the
+traffic: a direction that serializes what the other spreads across waves shows
+up as `steps` multiplying `dots` on one side and `waves` dividing it on the
+other. The case that motivates this recipe is exactly that inversion — a fused
+stage with a long dependent chain against a split stage with many waves — and
+traffic totals alone cannot see it.
+
+Before a candidate exists, `r_eff` is not measurable. Run the model with the
+resource-admitted `r` (smem usually sets the upper bound; registers can lower
+it) and with `t_dot` at the candidate's shapes, and label the result an
+estimate. Replace `r` with the measured `r_eff` once the kernel exists. A
+ranking that flips between the estimate and the measurement is a signal to
+measure the binding term, not evidence for either side.
 
 ## Measure every constant on the attached device
 
@@ -63,8 +82,9 @@ device identity, and shape or configuration with every constant.
 | `latency` | A dependent-load chain over a buffer larger than the last-level cache, one warp, pointers shuffled so each load depends on the previous; report the plateau. Or use the published latency for the ideal bound and say so |
 | `inflight_per_warp` | The emitted staging depth (stages x bytes per stage / warps) for an asynchronous pipeline; the widest per-thread access for a synchronous one. Corroborate against the knee of the stream sweep |
 | `t_dot(shape)` | `gemm_fit.py`: one barrier-separated small GEMM on one SM at the candidate's actual dot shapes |
+| `dots` | Sum `t_dot` over the dots one step runs; when no per-dot measurement exists, use the step's analytical compute time |
 | `r_eff` | Per-CTA intervals from IKET warp-lifetime tracing, or a grid sweep of the candidate where wall time stops improving |
-| `chain` | Measured on a stage whose staging is already good; re-derive it after any staging change |
+| `chain` | Dependent cost in one step beyond the dots, measured on a stage whose staging is already good; re-derive it after any staging change. A serialized dot stays in `dots` |
 
 Rules that keep the model honest:
 
