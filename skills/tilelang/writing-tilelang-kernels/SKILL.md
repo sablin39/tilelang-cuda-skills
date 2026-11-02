@@ -102,3 +102,9 @@ input/output contract, and cases actually checked. Distinguish emitted source,
 successful compilation, and validated execution. Carry this evidence into
 profiling; use the suite's [workflow](../../tilelang-optimization-loop/SKILL.md) when
 continuing through optimization or handing off the implementation.
+
+When this skill supplies an optimization-loop stage, return its bounded finding
+using the shared [stage report](../../tilelang-optimization-loop/references/stage-handoff.md):
+question, matching source/context, checks and artifacts, and the decision that
+consumes the result. Preserve the task's existing ledger; a standalone question
+does not require a report.

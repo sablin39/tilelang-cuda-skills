@@ -94,3 +94,8 @@ comparison results, and any sanitizer logs. For performance changes, retain
 the correct baseline and record timing scope, conditions, and before/after
 results. For a task involving TileLang, carry those artifacts into the suite's
 [optimization loop](../tilelang-optimization-loop/SKILL.md).
+
+When used in an optimization-loop stage, return the finding and its evidence
+through the [stage report](../tilelang-optimization-loop/references/stage-handoff.md).
+Keep compilation, launch, synchronization, correctness and timing results
+separate, and name the next decision this result supports.

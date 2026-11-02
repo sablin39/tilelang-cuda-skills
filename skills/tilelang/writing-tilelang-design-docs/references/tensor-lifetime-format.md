@@ -94,7 +94,7 @@ the renderer derives it from buffer intervals and events.
 
 ```bash
 # From the suite root, matching the invocation in the design-docs skill:
-python skills/tilelang/writing-tilelang-design-docs/scripts/render_tensor_lifetimes.py \
+python <design-doc-skill>/scripts/render_tensor_lifetimes.py \
   lifetimes.json -o lifetimes.svg
 ```
 

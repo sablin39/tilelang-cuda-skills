@@ -8,6 +8,12 @@ history, oracle, workload objective, and environment across checkpoints.
 For unattended runs, enforce resource limits and truthful command status in the
 [execution harness](execution-harness.md), outside the model's task prompt.
 
+Use the shared [stage report](stage-handoff.md) for each checkpoint. Name the
+specialist and question in the assignment; the return identifies its finding,
+hashed inputs/artifacts, checks actually run, and the decision consuming them.
+Validate the report and inspect evidence before accepting it. These checkpoints
+also work within one agent and do not require delegation.
+
 ## Baseline checkpoint
 
 ```text

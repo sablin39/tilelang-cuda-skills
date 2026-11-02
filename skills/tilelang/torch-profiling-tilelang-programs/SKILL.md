@@ -126,3 +126,9 @@ Return the trace/snapshot path, capture command and scope, selected ranges and
 device events, and the observation that motivates the next experiment. If GPU
 events are absent, report the missing attribution. Remeasure a proposed change
 with the same controlled benchmark before claiming a performance improvement.
+
+When this skill supplies an optimization-loop stage, return its bounded finding
+using the shared [stage report](../../tilelang-optimization-loop/references/stage-handoff.md):
+question, matching source/context, checks and artifacts, and the decision that
+consumes the result. Preserve the task's existing ledger; a standalone question
+does not require a report.

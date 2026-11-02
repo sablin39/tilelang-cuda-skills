@@ -11,6 +11,30 @@ Resume from evidence that still matches the source, inputs, and environment.
 This adapts the [KDA workflow](https://github.com/mit-han-lab/kernel-design-agents/blob/4806866492d5c7cad05e07918790bd1e94e976a1/docs/agent-flow.md)
 to the chain from TileLang source through compiler lowering to GPU behavior.
 
+## Route by the current decision
+
+At each stage, name the question, read the selected specialist's entrypoint,
+and consume its finding in the next decision. A link alone is not a completed
+specialist step. Reuse matching evidence rather than rereading or rerunning
+everything. Use the [stage report](references/stage-handoff.md) for iterative
+tasks and session/worker handoffs; link it from the existing candidate ledger.
+
+| Current question | Skill to read |
+| --- | --- |
+| What does the PyTorch baseline execute and allocate? | [Torch profiling](../tilelang/torch-profiling-tilelang-programs/SKILL.md) |
+| Does a high-level placement or fusion choice need a semantic/static model? | [TileFoundry design](../designing-with-tilefoundry/SKILL.md) |
+| How should this candidate express the operation? | [Writing kernels](../tilelang/writing-tilelang-kernels/SKILL.md) |
+| Why is output wrong, or why did the intended lowering disappear? | [Debugging](../tilelang/debugging-tilelang-programs/SKILL.md) |
+| Are the gradients and saved-state contract correct? | [Forward/backward testing](../tilelang/testing-fwd-bwd-kernels/SKILL.md) |
+| Is the comparison reliable, and what does the profile show? | [Profiling](../tilelang/profiling-tilelang-programs/SKILL.md) |
+| Which bounded schedule change tests that finding? | [Optimization](../tilelang/optimizing-tilelang-programs/SKILL.md) |
+| How should the supported design be explained? | [Design documents](../tilelang/writing-tilelang-design-docs/SKILL.md) |
+
+Mark a route unused when it does not answer the current question. Record an
+unavailable specialist/tool and the resulting evidence gap; do not substitute
+a prose guess for its check. Native CUDA compilation or sanitizer work can use
+the [CUDA workflow](../cuda_skill/SKILL.md) when that boundary is relevant.
+
 ## 1. Establish the contract and baseline
 
 Read the reference, current candidate, caller, and harness. Record the following
@@ -45,38 +69,20 @@ existing artifacts when applicable. If compilation is unavailable or fails,
 record the missing evidence and use the validated eager path as described in
 that reference. Keep the mathematical oracle independent of the candidate.
 
-When the task changes a multi-operation fusion boundary, logical sharding,
-topology, or high-level memory placement, or already uses TileFoundry, apply the
-[TileFoundry design workflow](../designing-with-tilefoundry/SKILL.md) between
-the contract and the plan:
+When a fusion, ownership or storage-placement decision needs an independent
+semantic/static model, use the [TileFoundry design workflow](../designing-with-tilefoundry/SKILL.md).
+State the decision question and model only the relevant region. Compare logical
+work/traffic and capacity, and use a runtime twin when evaluator agreement
+answers a correctness question. Record target identity, SM capability,
+assumptions and limitations. Do not introduce TileFoundry solely to tune an
+isolated, already-defined `PrimFunc`.
 
-1. Author each design direction as an HIR variant (fusion boundaries, storage
-   placement, sharding) and diff the `analyze` reports to rank them before any
-   kernel work. Verified against 0.0.2: relative diffs transfer to measurement
-   — a 1.67× gmem-traffic diff predicted the fused-vs-split direction and the
-   `bound-by: memory` diagnosis, with the measured latency ratio landing at
-   1.3-1.4× — while absolute predicted nanoseconds do not transfer, being
-   priced at the named target's published rates rather than the attached GPU.
-2. Run `tilefoundry check` on a plain-PyTorch runtime twin against the HIR
-   evaluator as a pre-codegen semantic oracle, so rounding-chain and semantics
-   errors surface before a GPU kernel exists.
-3. Record the target in SM capability terms (sm_90, sm_100, ...) so the
-   evidence states which architecture features it relies on.
-
-Record these as modeled design evidence; the emitted TileLang lowering and
-measured GPU result remain separate acceptance gates. Rank HIR variants by
-logical traffic/FLOP diffs, capacity advisories, and roofline floors.
-`analyze --performance` is a modeled plan, not a measured floor: it prices the
-mesh that runs (`wave=active/physical`) and the footprint's bytes at the
-bandwidth level, with a per-CTA Little's-law cap over the in-flight bytes the
-program states. What it still cannot see is achieved residency, dependent-chain
-latency, and pipeline overlap; when a decision turns on those, use the measured
-two-bound recipe in [the cost model](references/cost-model.md) and keep the
-benchmark as the verdict. Do not introduce TileFoundry solely to tune an
-isolated, already-defined `PrimFunc`, and do not rely on TileFoundry's own
-`compile()` CUDA backend as a measured floor — it remains experimental
-(TMA/WGMMA emitter gaps); see the TileFoundry design skill for its status at
-the pinned checkout.
+Specification rates suffice for a toy/ideal comparison when that is the task;
+calibration is not a prerequisite. Predicted times do not establish achieved
+residency, dependency latency or pipeline overlap. TileLang correctness and
+benchmark gates remain the verdict. An opt-in shared-memory sync plan does not
+mean the backend emitted synchronization; instruction evaluation does not
+establish whole-program CUDA support.
 
 ## 2. Write the draft, then an executable plan
 
@@ -192,6 +198,11 @@ For joint work, this includes the forward/backward pair and saved-state costs.
 Report the selected candidate, baseline comparison, supported cases, rejected
 hypotheses, and remaining limitations; preserve the draft, plan, results, and
 relevant lowering/profile artifacts in the task workspace.
+
+Close the learning loop with [suite maintenance](references/improving-the-suite.md):
+record any reusable instruction gap, its scope and reproducer, the owning
+reference, and an affected/nearby-case validation proposal. Apply it when suite
+maintenance is authorized; otherwise hand over the proposal with the task.
 
 Give another worker one bounded stage, the contract, allowed files, active
 environment/device, exact commands, current best/results, and expected outputs.

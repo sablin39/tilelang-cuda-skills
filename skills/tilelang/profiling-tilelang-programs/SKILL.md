@@ -132,3 +132,9 @@ observed variation when selecting between close candidates. For a trace,
 identify the relevant region/kernel and artifact path; distinguish the observed
 event from a proposed explanation. Hand optimization a specific measurable
 hypothesis, not an unsupported bottleneck label.
+
+When this skill supplies an optimization-loop stage, return its bounded finding
+using the shared [stage report](../../tilelang-optimization-loop/references/stage-handoff.md):
+question, matching source/context, checks and artifacts, and the decision that
+consumes the result. Preserve the task's existing ledger; a standalone question
+does not require a report.

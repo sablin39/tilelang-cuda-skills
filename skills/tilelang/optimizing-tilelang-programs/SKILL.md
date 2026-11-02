@@ -72,3 +72,9 @@ for every shape. If results are within observed variation or the search finds
 no improvement, retain the baseline. Use the suite's
 [experiment record](../../tilelang-optimization-loop/references/experiment-record.md)
 for a longer task or handoff.
+
+When this skill supplies an optimization-loop stage, return its bounded finding
+using the shared [stage report](../../tilelang-optimization-loop/references/stage-handoff.md):
+question, matching source/context, checks and artifacts, and the decision that
+consumes the result. Preserve the task's existing ledger; a standalone question
+does not require a report.

@@ -82,3 +82,9 @@ comparison command, checked cases, and per-output/gradient results. Include
 repeated-call and upstream-stride checks when those behaviors are supported.
 State higher-order derivative support explicitly. A matching forward result
 does not establish backward correctness.
+
+When this skill supplies an optimization-loop stage, return its bounded finding
+using the shared [stage report](../../tilelang-optimization-loop/references/stage-handoff.md):
+question, matching source/context, checks and artifacts, and the decision that
+consumes the result. Preserve the task's existing ledger; a standalone question
+does not require a report.

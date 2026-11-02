@@ -144,10 +144,11 @@ IR Lower Trace supersedes the legacy `TILELANG_PASS_DIFF` workflow.
 
 For compiler-derived lifetimes, follow
 [buffer-lifetime-analysis.md](../debugging-tilelang-programs/references/buffer-lifetime-analysis.md)
-and render the reviewed data with the standard-library helper:
+and render the reviewed data with the standard-library helper. Here
+`<design-doc-skill>` is the installed directory containing this skill:
 
 ```bash
-python skills/tilelang/writing-tilelang-design-docs/scripts/render_tensor_lifetimes.py \
+python <design-doc-skill>/scripts/render_tensor_lifetimes.py \
   lifetimes.json --output lifetimes.svg
 ```
 
@@ -172,3 +173,9 @@ Store authored diagrams and their source beside the design document. Keep
 generated input data beside charts, use stable relative links, and give files
 descriptive names such as `memory-flow.svg`, `smem-lifetimes.svg`, and
 `lowering-layout-inference.html`.
+
+When this skill supplies an optimization-loop stage, return its bounded finding
+using the shared [stage report](../../tilelang-optimization-loop/references/stage-handoff.md):
+question, matching source/context, checks and artifacts, and the decision that
+consumes the result. Preserve the task's existing ledger; a standalone question
+does not require a report.

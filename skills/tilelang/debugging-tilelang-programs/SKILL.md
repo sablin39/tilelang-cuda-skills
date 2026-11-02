@@ -116,3 +116,9 @@ diagnosis, and smallest justified fix. Re-run the failing case plus cases
 affected by the change. Report an unresolved failure explicitly; a tool that
 did not execute or a missing device is not a passing check. For automation,
 add `--error-exitcode 1` to sanitizer commands and retain their logs.
+
+When this skill supplies an optimization-loop stage, return its bounded finding
+using the shared [stage report](../../tilelang-optimization-loop/references/stage-handoff.md):
+question, matching source/context, checks and artifacts, and the decision that
+consumes the result. Preserve the task's existing ledger; a standalone question
+does not require a report.
