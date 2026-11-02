@@ -1,8 +1,8 @@
 # AGENTS.md — maintaining the TileLang/CUDA skills suite
 
 This repo is the source of a skills suite for TileLang/CUDA kernel work. The
-**deliverable is `skills/`** (plus `README.md`, `scripts/`, `requirements.txt`,
-and the `external/TileFoundry` submodule pin). Everything under `evals/` is
+**deliverable is `skills/`** (plus `README.md`, `scripts/`, helper `tests/`,
+`requirements.txt`, and the `external/TileFoundry` submodule pin). Everything under `evals/` is
 local-only evidence: gitignored, never shipped, existing only in this working
 copy.
 
@@ -32,12 +32,13 @@ copy.
 
 ## Environment facts (save yourself rediscovery)
 
-- CLI is `.venv/bin/tilefoundry`; TileFoundry is installed **editable** from
-  `external/TileFoundry` (its CUDA backend resolves `runtime.h` and CUTLASS
-  relative to a source checkout; the wheel ships neither). cmake/ninja come
-  from `requirements.txt`. Init:
-  `git submodule update --init external/TileFoundry` then
-  `git -C external/TileFoundry submodule update --init third_party/cutlass`.
+- CLI is `.venv/bin/tilefoundry`. Install the pinned core and NVIDIA package
+  together: `uv pip install --python .venv/bin/python -e external/TileFoundry
+  -e external/TileFoundry/targets/nvidia`; add `targets/apple` for all-target
+  upstream tests. Runtime headers ship with the owning package; CUDA builds
+  additionally need CUTLASS and nvcc. Initialize the submodule recursively.
+  Old repository-root `tilefoundry.egg-info` must be removed before migrating
+  to the split editable packages. Keep cmake/ninja on `PATH`.
 - `scripts/install-skills.sh` also ships TileFoundry: it checks out the pinned
   submodule (recursive, including CUTLASS) in checkout and cache modes and
   prints the source path and install commands. It never updates TileFoundry to
@@ -46,29 +47,33 @@ copy.
   `PATH=$PWD/.venv/bin:$PATH .venv/bin/python -m pytest ...`. Without it,
   `link_modules` fails with `'cmake' not on PATH` even though cmake is
   installed in the venv.
-- `tilefoundry --version` prints a bogus shallow-clone artifact
-  (`0.1.dev1+g...`). Record the **commit SHA**
-  (`git -C external/TileFoundry rev-parse --short HEAD`), never that string.
+- Record the git SHA and package versions. Shallow git metadata can mislabel
+  the release; all editable vendor packages must match the core checkout.
 - The first CLI invocation after a submodule checkout can stall for minutes
   (import/cache warm-up). Known behavior, not a regression — run long commands
   in the background instead of aborting them.
 - GPU runs: `CUDA_VISIBLE_DEVICES=0`.
-- To test a *different* TileFoundry checkout without reinstalling:
-  `PYTHONPATH=<checkout>/src .venv/bin/python -m tilefoundry.cli <args...>`.
+- To test a different TileFoundry checkout, use a separate environment with
+  matching core/vendor editable installs. A src-only `PYTHONPATH` leaves the
+  installed vendor entry points and code active and is not a valid pin switch.
 - `tilefoundry check`: repeat `--expected` per output file — the comma form
   silently parses as one path.
 
 ## Updating the TileFoundry pin (the ritual)
 
-Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
+Current pin: `3a6a4c0` (audited 2026-11-02). Run every step; skip nothing.
 
 1. **Survey the delta.** `git -C external/TileFoundry fetch origin`, then
    `git log --oneline <old>..<new>` and `git diff <old>..<new> -- pyproject.toml
    .gitmodules` for dependency/submodule changes. Check what happened to the
-   tracked upstream issues/PRs (at this pin: #239, #252, #253 and the
-   `warps_per_group` reduce-dispatch bug are fixed by #258/#257; #240 merged;
-   #241/#237 closed; the TMA/WGMMA/`Where` emitter gaps remain, tracked as
-   #249).
+   tracked upstream issues/PRs. At this pin #260 closes MLA/layout gaps;
+   #265/#268 split core/vendor packages; #269 changes CLI/finalize loading;
+   #271/#273/#277 fix launch sizing, full windows and ring bindings;
+   #279 changes AMX/facts contracts; #280/#282 centralize emission decisions;
+   #283 adds opt-in sync planning, without CUDA synchronization emission.
+   #249 (WGMMA emission), #278 (all-Broadcast normalization), and our #284
+   (FSDP/HSDP HIR modeling) remain open. Do not teach #284 as pinned main.
+
 2. **Checkout the new SHA** (detached) in `external/TileFoundry`, then
    `git -C external/TileFoundry submodule update --init --recursive
    third_party/cutlass` so the CUDA backend has its headers.
@@ -76,10 +81,11 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
    expect `12/12 PASS` (exits non-zero on any DIFF). If a DIFF is an upstream
    *improvement* (e.g. better error text), read the new output, update the
    fingerprint in `evals/tilefoundry-capability-map/probes/expected/`, rerun.
-   Never edit fingerprints to silence a regression. At `bb3b726` the five
-   I-1/I-2 fingerprints were re-derived for the new costing model (wave states
-   active/physical, the timeline prices the footprint share, the floor reads
-   footprint bytes).
+   Never edit fingerprints to silence a regression. On API changes first
+   migrate local fixtures with backups. The current compiler probe loads a
+   freshly finalized Module; the obsolete bare-PrimFunction error is no longer
+   useful. It now reaches an unsupported TupleGetItem index expression.
+   Numerical cost fingerprints remain unchanged.
 4. **Pin ritual** (proves the user-facing workflow still works):
    - Extract the tutorial programs with the awk block from
      `external/TileFoundry/docs/tutorial/optimize.md`, then
@@ -95,11 +101,11 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
      → PASS both outputs.
    - One upstream test:
      `PATH=$PWD/.venv/bin:$PATH .venv/bin/python -m pytest
-     external/TileFoundry/tests/ops/tir/test_copy.py -x -q`
+     external/TileFoundry/tests/nvidia/cuda/ops/tir/test_copy.py -x -q`
      (cmake/ninja live in `.venv/bin`; without them on PATH the test fails with
      `link_modules: 'cmake' not on PATH`).
 5. **Trust-table spot checks** (re-derive after any costing change; at
-   `bb3b726` both are unchanged): scan fused (`scan_variants.py:ScanFused`,
+   `3a6a4c0` both are unchanged): scan fused (`scan_variants.py:ScanFused`,
    `--dim C=40`, `--performance`) → `ideal-ns=125063`; GEMM scheduled
    (`gemm_compute/hir/scheduled.py:GEMM_4096X4096X4096_OPTIMAL`) →
    `ideal-ns=143256 bound-by=compute`.
@@ -116,6 +122,20 @@ Current pin: `bb3b726` (set 2026-10-23). Run every step; skip nothing.
    upstream delta (commits, merged PRs), what changed in behavior, what still
    reproduces (issue numbers), and the verification evidence (probe count,
    ritual results, trust-table numbers).
+
+## Suite validation and stage evidence
+
+- Run `python3 -m unittest discover -s tests -v`, shell syntax checks, and
+  `python3 scripts/skill_layout.py check skills` after helper/routing edits.
+- Exercise a disposable flattened copy and symlink install. Check-only must
+  remain offline/read-only and return nonzero for missing or stale files.
+- Use the loop's stage report for bounded handovers, referencing the existing
+  candidate ledger. Validate hashes and references, then review the findings;
+  the helper cannot prove execution or measure agent skill-use behavior.
+- Maintenance findings need a reproducer, owning reference, applicability scope
+  and a nearby case that should not trigger the advice. Keep raw evidence local.
+- Current audit/probe logs and fixture backups are in
+  `evals/suite-update-20261102`; capability-map docs retain the source history.
 
 ## Updating skills from eval findings
 
@@ -215,11 +235,12 @@ survive a take-over:
 - **Commands are the contract.** Captured output in docs/READMEs/examples
   drifts between releases; rerun at the pinned checkout and read what it
   actually prints.
-- **TileFoundry `compile()` is not a measured floor.** Emitter gaps remain
-  (TMA / WGMMA / `Where`); the `warps_per_group` reduce-dispatch bug is fixed
-  at this pin. The supported integration is TileFoundry for
-  HIR/check/analyze/schedule/finalize with TileLang kernels implementing the
-  finalized TIR.
+- **TileFoundry `compile()` is not a measured floor.** Current tutorial
+  finalization succeeds, but compilation reaches an unsupported TupleGetItem
+  index expression. Other emitter gaps remain; `sync` plans ordering without
+  emitting CUDA waits/barriers. Copy/launch GPU tests do not prove an entire
+  program correct. Keep HIR, finalization, runtime correctness and timing as
+  distinct evidence gates.
 - **The TileLang runtime-twin pattern** (equal/allclose predicates per output;
   `--fn ulp --max 1` for bf16 reduction-order disagreement) is the correctness
   gate for optimization candidates — keep `tilefoundry check` green after each

@@ -97,30 +97,30 @@ python3 ~/.agents/skills/KernelWiki/scripts/query.py pipeline --type technique -
 Record the Wiki revision (`git -C ~/.agents/skills/KernelWiki rev-parse HEAD`)
 in task evidence for reproducible runs; update the clone deliberately when
 adopting upstream changes. Query scripts work without extra pip dependencies.
-Keep the full suite checkout available when using its skills so their relative
-links resolve.
+Copied installs rewrite cross-skill Markdown links for the flat layout.
+Keep the full suite checkout available for vendored tools; copied skills contain
+their own documentation and helpers.
 
 ## TileFoundry
 
 TileFoundry ships with the suite as a pinned submodule at
 `external/TileFoundry`; the installer checks it out together with its
 `third_party/cutlass` dependency and prints the source path and install
-commands. The source is the designated distribution — its CUDA backend resolves
-headers and CUTLASS relative to the checkout, and the PyPI wheel ships neither.
-
-Run the CLI without installing:
+commands. Core and vendor targets are separate distributions; install the
+pinned core and NVIDIA package together in a Python 3.12+ task environment:
 
 ```bash
-SUITE=...   # the checkout or cache root containing skills/ and external/
-PYTHONPATH="$SUITE/external/TileFoundry/src" python -m tilefoundry.cli --help
+SUITE=...   # checkout/cache root
+TF="$SUITE/external/TileFoundry"
+<env>/bin/python -m pip install -e "$TF" -e "$TF/targets/nvidia" cmake ninja
+# For Apple support also install -e "$TF/targets/apple".
+<env>/bin/tilefoundry target list
 ```
 
-Install it editable into the environment that will run it:
-
-```bash
-<env>/bin/python -m pip install -e "$SUITE/external/TileFoundry" cmake ninja
-# or: uv pip install --python <env>/bin/python -e "$SUITE/external/TileFoundry" cmake ninja
-```
+Runtime headers ship with their owning packages. CUDA builds also need nvcc
+and CUTLASS. Core-only installation provides CPU support; a src-only `PYTHONPATH`
+override does not load a different vendor package. For old checkouts, remove
+obsolete root `tilefoundry.egg-info` before reinstalling the split projects.
 
 Verify the checkout is at the suite's pin; update by checking out the recorded
 gitlink, never by tracking upstream main:
@@ -194,3 +194,27 @@ use the supplementary KernelWiki for targeted architecture research and connect
 its explanations to the actual TileLang lowering and measurements.
 
 The tracked `.vscode` directory provides editor highlighting configuration.
+
+## Stage handovers and maintenance
+
+The loop routes by the current decision question and consumes specialist
+findings before the next experiment. Its [stage report](skills/tilelang-optimization-loop/references/stage-handoff.md)
+records matching source/context, findings, checks, artifacts and the next route.
+The checker detects stale evidence and unresolved promotion gates; it does not
+verify the truth of reported results. Reports link into the existing ledger;
+single questions do not require this machinery.
+
+Reusable findings feed a scoped [maintenance loop](skills/tilelang-optimization-loop/references/improving-the-suite.md)
+with reproducer, owning reference, affected and nearby cases, and an accept/reject
+decision. Raw task evidence stays outside delivered skills.
+
+`--check-only` is offline and read-only. It checks selected installation files,
+reachable links, missing/stale copies, KernelWiki structure and vendored
+pin/CUTLASS presence, returning nonzero on failure. It cannot establish that the
+active agent discovered those files; verify its advertised skill list.
+Source-only checks and helper tests:
+
+```bash
+python3 scripts/skill_layout.py check skills
+python3 -m unittest discover -s tests -v
+```

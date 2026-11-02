@@ -74,7 +74,9 @@ warn() { echo "WARNING: $*" >&2; }
 if [ -z "$SUITE_ROOT" ] || [ ! -d "$SKILLS_SRC" ]; then
   SUITE_ROOT="$SUITE_CACHE"
   SKILLS_SRC="$SUITE_CACHE/skills"
-  if [ -d "$SUITE_CACHE/.git" ]; then
+  if [ "$check_only" -eq 1 ]; then
+    [ -d "$SKILLS_SRC" ] || { echo "ERROR: no cached suite at $SUITE_CACHE" >&2; exit 1; }
+  elif [ -d "$SUITE_CACHE/.git" ]; then
     echo "Updating cached suite at $SUITE_CACHE ..."
     git -C "$SUITE_CACHE" fetch --depth 1 origin "$SUITE_REF" \
       && git -C "$SUITE_CACHE" reset --hard FETCH_HEAD \
@@ -83,6 +85,43 @@ if [ -z "$SUITE_ROOT" ] || [ ! -d "$SKILLS_SRC" ]; then
     echo "Fetching the skill suite into $SUITE_CACHE ..."
     git clone --depth 1 --branch "$SUITE_REF" "$SUITE_URL" "$SUITE_CACHE"
   fi
+fi
+
+# Check-only is read-only and offline: do not initialize submodules, fetch the
+# cache, repair installations, or execute dependency query scripts.
+if [ "$check_only" -eq 1 ]; then
+  case "$target" in
+    all) check_targets=(kimi claude codex) ;;
+    kimi|claude|codex) check_targets=("$target") ;;
+    *) echo "--target must be kimi, claude, codex, or all" >&2; exit 2 ;;
+  esac
+  check_status=0
+  python3 "$SUITE_ROOT/scripts/skill_layout.py" check "$SKILLS_SRC" || check_status=1
+  for cli in "${check_targets[@]}"; do
+    if [ "$scope" = global ]; then check_base="$HOME"; else check_base="$PWD"; fi
+    case "$cli" in
+      kimi) check_dest="$check_base/.agents/skills" ;;
+      claude) check_dest="$check_base/.claude/skills" ;;
+      codex) check_dest="$check_base/.codex/skills" ;;
+    esac
+    python3 "$SUITE_ROOT/scripts/skill_layout.py" check "$SKILLS_SRC" \
+      --installed "$check_dest" || check_status=1
+    if [ ! -f "$check_dest/KernelWiki/SKILL.md" ] || \
+       [ ! -f "$check_dest/KernelWiki/scripts/query.py" ] || \
+       [ ! -d "$check_dest/KernelWiki/wiki" ]; then
+      echo "ERROR: KernelWiki missing/incomplete at $check_dest/KernelWiki" >&2
+      check_status=1
+    fi
+  done
+  check_pin="$(git -C "$SUITE_ROOT" rev-parse HEAD:external/TileFoundry 2>/dev/null || true)"
+  check_head="$(git -C "$SUITE_ROOT/external/TileFoundry" rev-parse HEAD 2>/dev/null || true)"
+  if [ -z "$check_pin" ] || [ "$check_pin" != "$check_head" ] || \
+     [ ! -f "$SUITE_ROOT/external/TileFoundry/third_party/cutlass/include/cute/tensor.hpp" ]; then
+    echo "ERROR: TileFoundry or CUTLASS missing/not at suite pin" >&2
+    check_status=1
+  fi
+  echo "Checked files and links only; confirm skill discovery in the active agent separately."
+  exit "$check_status"
 fi
 
 # --- TileFoundry: ship the pinned source -------------------------------------
@@ -250,17 +289,14 @@ case "$target" in
   *) echo "--target must be kimi, claude, codex, or all" >&2; exit 2 ;;
 esac
 
-if [ "$check_only" -eq 1 ]; then
-  echo "Skills found:"
-  discover_skills | sed 's/^/  /'
-  exit 0
-fi
-
 if [ "$scope" = global ]; then
   echo "Installing into $GLOBAL_SKILLS (canonical, $mode):"
   while IFS= read -r skill; do
     install_one "$skill" "$GLOBAL_SKILLS"
   done < <(discover_skills)
+  if [ "$mode" = copy ]; then
+    python3 "$SUITE_ROOT/scripts/skill_layout.py" relocate "$SKILLS_SRC" --installed "$GLOBAL_SKILLS"
+  fi
   for cli in "${targets[@]}"; do
     case "$cli" in
       kimi)   : ;;                      # reads ~/.agents/skills natively
@@ -275,6 +311,9 @@ else
     while IFS= read -r skill; do
       install_one "$skill" "$dest_dir"
     done < <(discover_skills)
+    if [ "$mode" = copy ]; then
+      python3 "$SUITE_ROOT/scripts/skill_layout.py" relocate "$SKILLS_SRC" --installed "$dest_dir"
+    fi
     install_one "$KW" "$dest_dir"
   done
 fi
@@ -291,12 +330,11 @@ EOF
 if [ -n "${tf_pin:-}" ]; then
   cat <<EOF
 
-TileFoundry: $TF @ ${tf_pin:0:12} (pinned). The designated distribution is this
-source checkout, not the PyPI wheel, which ships no CUDA headers.
-  Run the CLI without installing:
-    PYTHONPATH="$TF/src" python -m tilefoundry.cli --help
-  Install editable into the environment that will run it:
-    <env>/bin/python -m pip install -e "$TF" cmake ninja
-    uv pip install --python <env>/bin/python -e "$TF" cmake ninja
+TileFoundry: $TF @ ${tf_pin:0:12} (pinned).
+  Install core and NVIDIA support into a Python 3.12+ task environment:
+    <env>/bin/python -m pip install -e "$TF" -e "$TF/targets/nvidia" cmake ninja
+  For Apple support also install -e "$TF/targets/apple".
+  Run with that environment's tilefoundry command; do not use a src-only PYTHONPATH.
+  Runtime headers ship with the packages; CUDA builds also need CUTLASS and nvcc.
 EOF
 fi
