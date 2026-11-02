@@ -18,10 +18,6 @@ live under `targets/nvidia` or `targets/apple`; shared IR/analysis remains core.
 - A `Reshard` changing any mesh axis's `Partial` state performs a reduction
   and incurs traffic. It is not a view even when allocation reuses the buffer.
   Splits over extent-one mesh axes do not change alias boxes.
-- Keep `Broadcast` placement and replica-value equality separate. Verify
-  normalization/replication constraints against the actual relation contract;
-  a missing distribution result does not prove equality or fully specify a
-  future placement solver.
 
 Use explicit slice windows. Arithmetic on a `tf.tile` window can turn it into
 a scalar start; check inferred rank before reshaping. Scalar indexing and range

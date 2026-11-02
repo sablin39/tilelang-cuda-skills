@@ -93,9 +93,7 @@ tilefoundry analyze model.py:Variant artifacts/analysis.txt \
 
 `analyze` does not search layouts, select a parallelism strategy, or insert a
 distributed resharding implementation. Keep logical shape/ownership, local
-storage layout and actual communication distinct. Do not infer DTensor/FSDP/HSDP
-APIs or collective execution from a feature branch or HIR diagram; check the
-pinned source and evaluator before claiming those capabilities.
+storage layout and actual communication distinct.
 
 | Evidence | Interpretation |
 | --- | --- |

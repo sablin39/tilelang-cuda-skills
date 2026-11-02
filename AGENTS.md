@@ -29,6 +29,8 @@ copy.
    verification-date walls to `skills/`. Write the delta in the commit message
    instead: what changed upstream, what was re-verified, and what still
    reproduces. This file keeps the current pin and the tracked-issue status.
+   Keep unmerged work and branch-specific exclusions here or in local audit
+   records; they do not belong in shipped skill instructions.
 
 ## Environment facts (save yourself rediscovery)
 
