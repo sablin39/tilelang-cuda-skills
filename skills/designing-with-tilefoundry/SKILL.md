@@ -105,8 +105,18 @@ storage layout and actual communication distinct.
 
 Record the target identity and reason in SM terms (`sm_90`, etc.). Same
 architecture does not imply identical unit counts, bandwidth or cache capacity.
-Inspect `target show IDENTITY` and instruction capabilities. Use specification
-rates for a toy/ideal model when sufficient; label assumptions and expose logical
+Inspect `target show IDENTITY` and instruction capabilities.
+
+For hardware questions that affect the design—memory hierarchy, instruction
+contracts, async copies, synchronization or pipeline choices—use the
+[KernelWiki interface](../tilelang-optimization-loop/references/kernelwiki.md)
+and read the installed KernelWiki skill. Query for the target architecture,
+follow the cited sources, and record which finding informs the HIR choice.
+Check applicability to the named target; hardware support and TileFoundry
+backend support are separate questions. Before a kernel exists, treat these
+findings as design evidence to validate after implementation.
+
+Use specification rates for a toy/ideal model when sufficient; label assumptions and expose logical
 bytes. Do not calibrate NVLink/NVSwitch or inter-node costs merely to establish
 an HIR design. Use measurements when a decision requires runtime performance.
 For detailed kernel latency diagnosis, see the loop's

@@ -1,4 +1,4 @@
-# KernelWiki interface for TileLang work
+# KernelWiki interface for kernel design and optimization
 
 Use the standalone KernelWiki skill when a design choice, lowering result, or
 profile needs an implementation or hardware explanation. The upstream
@@ -11,6 +11,7 @@ current kernel and experiment.
 Find the installed KernelWiki skill directory: `~/.agents/skills/KernelWiki`
 in a global install, or the `KernelWiki` entry under the task project's
 `.agents/skills`, `.claude/skills`, or `.codex/skills` in a project install.
+Read its `SKILL.md` before using the query tools.
 If it is missing, install it per its official instructions — a standalone
 clone whose root is the skill directory:
 
@@ -46,6 +47,15 @@ prints excerpts; fetch a source ID separately for its full page. If a search
 returns no applicable evidence, refine it or use the installed TileLang source
 and authoritative target documentation; an empty result does not prove a
 mechanism is unsupported. PyYAML is optional; upstream includes a fallback.
+
+## Use hardware references during HIR design
+
+Before a kernel exists, query the hardware mechanism relevant to the authored
+operation, ownership or storage choice. Follow the source and target/version
+requirements, then record the resulting constraint or hypothesis in the design
+stage report. Distinguish hardware capabilities from support in the installed
+compiler. Mark lowering and runtime effects as untested; once implemented,
+validate the explanation against the actual kernel using the sequence below.
 
 ## Connect the explanation to the actual kernel
 

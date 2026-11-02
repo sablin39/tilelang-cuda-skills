@@ -22,6 +22,7 @@ tasks and session/worker handoffs; link it from the existing candidate ledger.
 | Current question | Skill to read |
 | --- | --- |
 | What does the PyTorch baseline execute and allocate? | [Torch profiling](../tilelang/torch-profiling-tilelang-programs/SKILL.md) |
+| Which hardware mechanism or instruction contract informs this choice? | [KernelWiki interface](references/kernelwiki.md), then the installed KernelWiki skill |
 | Does a high-level placement or fusion choice need a semantic/static model? | [TileFoundry design](../designing-with-tilefoundry/SKILL.md) |
 | How should this candidate express the operation? | [Writing kernels](../tilelang/writing-tilelang-kernels/SKILL.md) |
 | Why is output wrong, or why did the intended lowering disappear? | [Debugging](../tilelang/debugging-tilelang-programs/SKILL.md) |
