@@ -29,9 +29,12 @@ the decision without reconstructing the conversation.
     "results": "runs/c02/timings.json"
   },
   "model": {
-    "ideal": "<saturated bound: analyze ideal-ns or measured rates>",
-    "real": "<measured two-bound recipe>",
-    "measured_over_floor": "<measured / real>"
+    "ideal_reference": "<named target, counting assumptions and specification rates>",
+    "prediction": "<lower/median/upper, units and covered regime>",
+    "calibration": "<profile hash, access-site staging and held-out residuals>",
+    "measured_over_ideal": "<measured / ideal_reference>",
+    "measured_over_prediction": "<measured / predicted_median>",
+    "selection": "<proof-based rejection, cost-based deferral, unresolved or retained; reason>"
   },
   "decision": "reject",
   "reason": "Validation passed, but the aggregate workload objective regressed beyond measured variation.",
@@ -44,7 +47,7 @@ current best, and candidate measurements distinguishable. Record compile/runtime
 errors as failures, and missing execution as unrun/blocked; do not write dummy
 latency values or a passing status for those cases. An unchanged source file
 with a different configuration is still a distinct candidate identity. When a
-stage was modeled, record both bounds and `measured / floor`; the
+stage was modeled, distinguish ideal references from calibrated predictions; the
 [cost model](cost-model.md) defines them.
 
 The plan answers **what to try next and why**. The candidate record answers

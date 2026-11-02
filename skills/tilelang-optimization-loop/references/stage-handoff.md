@@ -85,3 +85,10 @@ The next stage consumes the finding, not merely the fact that a skill was read:
 Update the shared plan with this decision question and route before starting
 the next experiment. Reports are handovers for the same agent too; they do
 not authorize delegation or additional external actions.
+
+For calibrated searches, attach the profile manifest/raw data, fit and held-out
+results, candidate-domain hash, per-access staging table, solver statuses and
+selection audit as `model` check artifacts. Keep rejected versus deferred
+candidate classifications in the existing ledger. The report checker verifies
+file identity and references, not the soundness of solver encodings or timing
+bounds. A performance claim still needs the fixed benchmark gate.

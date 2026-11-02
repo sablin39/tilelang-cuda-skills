@@ -6,6 +6,13 @@ repository owns the knowledge and query tools; the suite's installer keeps a
 usable checkout next to this suite's skills. Keep local notes about the
 current kernel and experiment.
 
+Treat hardware tables as leads to verify, not calibrated cost coefficients.
+Check capacities/capabilities against the active device and applicable primary
+sources. For bandwidth, latency, compute rates or overlap used in candidate
+selection, follow [microbenchmark calibration](../../tilelang/profiling-tilelang-programs/references/microbenchmark-calibration.md).
+Preserve every number's source and conditions; a Wiki label or vendor peak
+does not establish the rate of the task's access pattern.
+
 ## Locate and query
 
 Find the installed KernelWiki skill directory: `~/.agents/skills/KernelWiki`

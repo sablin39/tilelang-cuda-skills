@@ -109,6 +109,17 @@ warmup/rep passed earlier, so set measurement budgets at that call explicitly.
 - Per-candidate timeout is a wait limit: it cannot forcibly stop a hung native
   or CUDA call. Diagnose hangs with isolated reproducers before a broad search.
 
+## Filter a large configuration domain
+
+Construct a concrete config list before `AutoTuner.from_kernel(factory, configs)`
+or supply a callable config space that returns it for the workload. Follow
+[constraint pruning](../../../tilelang-optimization-loop/references/constraint-pruning.md):
+exactly illegal, statistically deferred and unresolved configurations need
+different records. Strip diagnostic/model metadata from factory arguments,
+keep an exploration subset and handle an empty feasible list explicitly.
+The tuner still compiles, checks and benchmarks the supplied configurations;
+its runtime early-stop option is not an offline SMT cost-model filter.
+
 ## Cache and manual searches
 
 `TILELANG_CACHE_DIR` controls artifact placement. Use a writable experiment

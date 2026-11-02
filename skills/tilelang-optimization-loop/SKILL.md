@@ -104,6 +104,13 @@ Choose the smallest experiment that can test the current explanation. A
 controlled parameter search can cover interacting variables, but give it a
 mechanism, bounded configurations, and a selection rule before launching it.
 
+For a large tiling search, read [constraint pruning](references/constraint-pruning.md)
+before spending the GPU budget. Separate proven template/resource exclusions
+from cost-based deferral, preserve unresolved candidates, and reserve exploration
+across structural choices. Use [matched calibration](../tilelang/profiling-tilelang-programs/references/microbenchmark-calibration.md)
+when empirical rates affect selection; KernelWiki/specification figures alone
+are not calibrated coefficients. Record the filter domain and assumptions.
+
 ## 3. Implement and inspect one candidate
 
 Assign an ID and parent (the current best correct candidate); preserve source
@@ -169,13 +176,14 @@ and measurements in `benchmark.csv` or existing structured results:
 | Identity | Candidate ID, parent, source revision/hash/path, configuration, workload cases |
 | Hypothesis | Observed cost, intended change, expected lowering and runtime effect; Wiki/source locator if used |
 | Evidence | Actual lowering artifact/finding; correctness status, command, tolerances, and log |
-| Measurement | Command, scope/backend/units, baseline and candidate per-case values, variation, artifact paths; for a modeled stage, `measured / floor` and the constants it used |
+| Measurement | Command, scope/backend/units, per-case results, variation and artifacts; when modeled, calibration/regime and separately labeled `measured / ideal_reference` and `measured / predicted_median` |
 | Decision | Promote, reject, inconclusive, or blocked; reason and next experiment if any |
 
-When a stage's gap to its floor needs an explanation, the
+When a model will explain a stage or rank a search, the
 [cost model](references/cost-model.md) separates work, bandwidth, residency,
-and chain terms with constants measured on the attached device. It explains a
-measurement; it never replaces the benchmark.
+and per-access staging with constants measured on the attached device. Record
+prediction intervals, held-out errors and deferred-candidate audits. It never
+replaces the benchmark or turns empirical assumptions into proofs.
 
 Promote only when the candidate satisfies correctness and the recorded workload
 objective/regression limits. Compare with the current best and preserve the

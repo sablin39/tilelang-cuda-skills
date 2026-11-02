@@ -1,160 +1,152 @@
-# A cost model for occupancy-gated decisions
+# Calibrated cost models for kernel search
 
-`analyze` ranks designs on logical traffic, capacity advisories, and a roofline
-floor. Its `ideal-ns` is a saturated-machine bound: footprint bytes at the
-target's published rate, arithmetic at the published peak, and a per-CTA
-bandwidth cap from the in-flight bytes the authored program states. That is the
-right bound for what a program could reach. When a decision turns on what the
-attached device actually sustains — resident CTAs per SM, a dependent chain, a
-staging path — build a small per-stage model on measured constants. The
-benchmark stays the verdict.
+Use a model when its calibration cost can be amortized over a broad tiling or
+schedule search, or when measurements contradict a traffic-only ranking. Keep
+the mathematical contract fixed. A model proposes which candidates to compile
+and measure; correctness and the workload benchmark decide promotion.
 
-## When to build one
+Read [microbenchmark calibration](../../tilelang/profiling-tilelang-programs/references/microbenchmark-calibration.md)
+to collect coefficients and [constraint pruning](constraint-pruning.md) to use
+them alongside exact tensor/layout constraints. No hardware rate from this
+document, KernelWiki or a previous task is a calibrated constant for this task.
 
-- Two candidates' static margin is inside measurement variation, or the static
-  ranking and a measurement disagree.
-- Candidates differ in residency (smem, registers, threads), pipeline depth, or
-  staging path, not only in logical bytes.
-- A stage measures far from its floor and you need to know which term binds:
-  work, bandwidth, residency, or a serial chain.
-
-Do not build one for an isolated, already-defined primitive; measure that
-directly. Do not let the model decide a promotion; it explains a measurement.
-
-## Two bounds per stage
-
-| Symbol | Meaning |
-| --- | --- |
-| `SM` | Streaming multiprocessors of the attached device |
-| `smem_budget`, `reg_budget` | Shared-memory and register capacity one SM makes available |
-| `smem_per_cta`, `threads`, `regs_per_thread` | The candidate's request |
-| `r` | Residency the resources admit: `min(smem_budget / smem_per_cta, reg_budget / (threads * regs_per_thread))` |
-| `r_eff` | Resident CTAs per SM actually achieved (`r_eff <= r`) |
-| `share` | `max(1, r_eff)`; resident CTAs serialize on the SM's compute |
-| `ctas`, `waves` | Grid size and `ceil(ctas / (SM * r_eff))` |
-| `bw_sm` | Global-memory bytes/s one SM sustains at `r_eff` |
-| `bw_sm_saturated` | The most global-memory bandwidth one SM sustains, from the sweep's plateau |
-| `inflight_per_warp` | Bytes one warp keeps in flight for the access pattern |
-| `warps_per_cta` | Warps one CTA runs |
-| `latency` | End-to-end global-memory latency seen by that pattern |
-| `dots` | One CTA's serialized dot time in one step: `sum(t_dot(shape))`, or the step's analytical compute time when no per-dot measurement exists |
-| `chain` | Dependent-latency cost in one step beyond the dots: barriers, dependent loads. A serialized dot belongs in `dots`, not here |
-| `t_dot(shape)` | One small GEMM's time on one SM at that shape |
-| `steps` | Serial steps each CTA runs at this stage |
-| `bytes` | Logical bytes the stage moves at the bandwidth level |
-
-```
-ideal: t_stage = waves * steps * max( share * dots , bytes / bw_sm_saturated )
-real:  t_stage = waves * steps * max( share * dots , chain , bytes / (bw_sm / r_eff) )
-real:  bw_sm    = min( bw_sm_saturated , r_eff * warps_per_cta * inflight_per_warp / latency )
-```
-
-`share * dots` is the per-step compute: `dots` measured with one CTA on one SM,
-multiplied by the CTAs that share that SM. `waves` divides the grid among
-resident slots, so a compute-bound stage stays invariant to residency, as it
-should. Report both bounds; `real / ideal` is the part of the gap the static
-bound cannot see.
-
-Apply the model to a fusion boundary by comparing the products, not the
-traffic: a direction that serializes what the other spreads across waves shows
-up as `steps` multiplying `dots` on one side and `waves` dividing it on the
-other. The case that motivates this recipe is exactly that inversion — a fused
-stage with a long dependent chain against a split stage with many waves — and
-traffic totals alone cannot see it.
-
-Before a candidate exists, `r_eff` is not measurable. Run the model with the
-resource-admitted `r` (smem usually sets the upper bound; registers can lower
-it) and with `t_dot` at the candidate's shapes, and label the result an
-estimate. Replace `r` with the measured `r_eff` once the kernel exists. A
-ranking that flips between the estimate and the measurement is a signal to
-measure the binding term, not evidence for either side.
-
-## Measure every constant on the attached device
-
-No value from a document, a previous task, or this skill is valid until it is
-measured on the device the candidate will run on. Record the command, date,
-device identity, and shape or configuration with every constant.
-
-| Quantity | How to obtain |
-| --- | --- |
-| `SM`, `smem_budget`, `reg_budget`, published rates | Device query plus the architecture's hardware pages in KernelWiki or the vendor documentation; label these ideal |
-| `bw_sm_saturated`, `bw_sm(r)` | `stream_sweep.py`: a copy kernel at several grid sizes, one point per resident CTAs/SM |
-| `latency` | A dependent-load chain over a buffer larger than the last-level cache, one warp, pointers shuffled so each load depends on the previous; report the plateau. Or use the published latency for the ideal bound and say so |
-| `inflight_per_warp` | The emitted staging depth (stages x bytes per stage / warps) for an asynchronous pipeline; the widest per-thread access for a synchronous one. Corroborate against the knee of the stream sweep |
-| `t_dot(shape)` | `gemm_fit.py`: one barrier-separated small GEMM on one SM at the candidate's actual dot shapes |
-| `dots` | Sum `t_dot` over the dots one step runs; when no per-dot measurement exists, use the step's analytical compute time |
-| `r_eff` | Per-CTA intervals from IKET warp-lifetime tracing, or a grid sweep of the candidate where wall time stops improving |
-| `chain` | Dependent cost in one step beyond the dots, measured on a stage whose staging is already good; re-derive it after any staging change. A serialized dot stays in `dots` |
-
-Rules that keep the model honest:
-
-- **Never credit a merged call.** A per-dot constant is a shape cost, not a
-  per-call overhead; a merged dot is the sum of its parts until a measurement
-  says otherwise.
-- **Re-derive the chain term after a staging change.** Better staging can put
-  the measured per-CTA time below the term that absorbed the old latency.
-- **Do not infer registers from the binary when the tool is absent.** TileLang
-  may leave its kernel resource fields empty; infer residency from the sweep or
-  the trace instead of guessing a per-thread register count.
-- **State which latency is which.** A published pointer-chase latency and the
-  achieved latency behind a staging path are different quantities; the model
-  uses the one that matches the access pattern.
-
-## Templates
-
-`stream_sweep.py` — measures achieved streaming bandwidth against resident
-CTAs per SM. Query the device at runtime; no rate is embedded.
+Two bundled starting probes are [stream_sweep.py](cost-model/stream_sweep.py)
+and [gemm_fit.py](cost-model/gemm_fit.py). Run them from their containing
+directory in the task environment:
 
 ```bash
-python stream_sweep.py --size-mib 512 --threads 256 --resident 1,2,4,8,16
+python stream_sweep.py --size-mib 512 --ctas-per-sm 1,2,4,8 --batches 5
+python gemm_fit.py --shapes 64x64x64,128x128x64 --dtype float16 --batches 5
 ```
 
-`gemm_fit.py` — times one barrier-separated small GEMM on one SM at each
-requested shape and prints the per-shape cost.
+The first reports whole-device copy GB/s versus offered grid work, not achieved
+residency or per-SM bandwidth. The second times a complete single-CTA
+load/GEMM/store kernel, not isolated dot latency. Both emit repeated-batch times
+using ordinary launches with buffer reuse and no explicit cache flush. They
+are starting probes, not a complete calibration profile: use the measurement
+contract below and add matched dependent-latency or async-access probes when
+those terms drive the decision.
 
-```bash
-python gemm_fit.py --shapes 64x64x64,128x128x64 --threads 256 --dtype float16
-```
+## Separate facts, bounds and predictions
 
-**Occupancy.** Use the external IKET profiler's warp-lifetime mode when it is
-available: it patches kernel entry and exit in the cubin, so per-warp start and
-end timestamps yield per-CTA intervals and achieved concurrency for any
-compiled kernel, TileLang included. Body tracing (`iket.mark`,
-`range_start`) is a different feature: it needs source instrumentation and
-exists only for CuTe-DSL sources, and an uninstrumented cubin yields an empty
-body trace. The suite's
-[IKET reference](../../tilelang/profiling-tilelang-programs/references/iket-profiling.md)
-covers the TileLang frontend; warp-lifetime is the external profiler's mode,
-not a TileLang namespace. Without the profiler, sweep the candidate's grid
-below and above `SM * r` and take the plateau where more CTAs stop improving
-wall time as `r_eff`; report which method produced the number.
+| Quantity | Source and use |
+| --- | --- |
+| Shapes, operation semantics, required bytes/FLOPs | Authored IR plus validated access/counting rules; record logical versus physical traffic |
+| Device limits, instruction availability | Active-device queries and applicable compiler/vendor contracts; corroborate Wiki summaries |
+| Ideal reference time | Named target's specification rates and explicit cache/traffic assumptions |
+| Calibrated time interval | Repeated matched microbenchmarks plus error on held-out configurations |
+| Actual candidate time | Correct candidate, fixed benchmark scope, variation and interference recorded |
 
-The two scripts print measurements; neither ships a default rate, latency, or
-shape. If a template's output disagrees with the generated code, the generated
-code wins — inspect it before trusting the number.
+KernelWiki is a discovery source for mechanisms and references, not a hardware
+measurement database. Even vendor rates need the right SKU, clock conditions,
+precision, sparsity mode and byte convention. Keep specification and measured
+profiles separate; do not silently replace a target's hardware facts with a
+fit for one kernel family.
 
-## Validate before ranking
+With justified upper service-rate bounds and mandatory work/traffic, a simple
+optimistic bound is `max(F / P_max, B_level / BW_max)` across resource levels.
+A measured copy maximum is a rate attained by that probe, not a proven maximum
+for every possible kernel. A prediction interval or empirical roofline is not
+a mathematical lower bound. If a candidate beats a purported bound, revisit
+its units, traffic, cache, concurrency and applicability before using it again.
 
-- Fit on one set of shapes or configurations and report **held-out residuals**
-  on another. A model fitted on the measurements it reproduces is not
-  validated; the residuals are the evidence.
-- Record `measured / floor` per stage in the candidate record. It separates
-  "this shape is slow" from "this kernel leaves performance on the table", and
-  it is how a stage that regressed against its own floor is found.
-- State the regime. The constants are calibrated for one staging path and one
-  residency regime; crossing either invalidates them, and the model is
-  in-regime evidence, not a universal law.
-- When the model and the benchmark disagree, the benchmark wins. Report the
-  model's error; do not adjust the measurement.
+TileFoundry's `ideal-ns` is the authored model's ideal reference;
+`bound-by` identifies its limiting resource under those assumptions. It does
+not certify a globally safe pruning bound. Its performance analysis prices
+modeled in-flight bytes and the running mesh, not measured register allocation,
+resident CTAs or achieved software-pipeline overlap.
 
-## Tie the measured bound to the static report
+## Preserve per-access staging
 
-- `ideal-ns` is the saturated-machine bound; `bound-by` names the resource
-  class. A `bound-by: memory` floor says which term binds, not what the kernel
-  achieves.
-- `wave=active/physical` states the static fill. Price the wave, not the grid:
-  `waves = ceil(ctas / (SM * r_eff))`, so a partially filled tail wave appears
-  before it is measured. KernelWiki's `patterns/tail-effect` states the rule.
-- The report's per-CTA bandwidth cap is Little's law over the in-flight bytes
-  the authored program states, at a published latency. It does not measure
-  residency; use the calibrated layer above when residency is the question.
+For each operand access site, record stable site/tensor ID, bytes per CTA per
+iteration, storage path, dtype/layout/alignment, synchronous or asynchronous
+issue, buffer slots, wait/commit position, consumer dependence and reuse scope.
+Mark whether each field is authored, extracted from lowering, or measured.
+
+The current TileFoundry performance path estimates in-flight bytes per Call:
+async categories use modeled transfer bytes and declared buffer slots;
+synchronous accesses use a thread-count-based default. Reuse available facts
+from `analysis/compute_cost.py`, `analysis/emission.py`, memory metadata and
+iteration scopes. Those defaults do not prove actual outstanding requests.
+Correlate them with the generated TileLang loads, waits and resource use.
+
+A loop with seven prefetched operands and one synchronous load is a mixed
+pipeline. Identify whether that load lies on the consumer's critical path;
+do not average it into a stage-wide in-flight value or assume every synchronous
+load is exposed. Increasing every buffer may consume shared memory without
+moving that load earlier. Compare moving the specific access, adding stages,
+and preserving the original pipeline as distinct hypotheses.
+
+For a matched access class, Little's law gives a model term
+`rate <= outstanding_bytes / latency`. Outstanding bytes are concurrent bytes
+on that path, not all allocated buffer bytes. Shared paths also have a common
+service cap; adding per-operand peak rates cannot exceed it. Pointer-chase
+latency, async completion latency and consumer stall time are different terms.
+Recalibrate affected terms when copy mechanism, wait placement or staging changes.
+
+## Residency, waves and compute service
+
+Use the compiled kernel's occupancy API/resource report when available. Resource
+ceilings include registers and their allocation granularity, shared memory,
+threads/warps, block limits and relevant cluster constraints. Logical fragment
+elements are not physical register counts. A hand estimate can bound a known
+mandatory allocation; it cannot prove the compiler's final residency.
+
+Achieved concurrency is a distribution over time and SMs. Use an appropriate
+trace or occupancy measurement, with uninstrumented timing for selection.
+Grid sweeps reveal underfill/saturation and tail behavior; a throughput plateau
+alone does not establish resident CTAs/SM or a register count. If concurrency
+is unknown, evaluate plausible regimes and retain candidates whose rank changes.
+
+For uniform independent CTAs and an integer resident-slot model,
+`slots = SMs * r_slots`, `waves = ceil(ctas / slots)`. Distinguish full waves
+and the final partial wave: its compute contention and bandwidth can differ.
+Do not insert average achieved occupancy into an integer wave formula or assume
+every block has the same duration. Persistent, clustered and heterogeneous
+workloads need a matching schedule model.
+
+Measure dependent MMA latency separately from throughput with independent
+accumulators. Match instruction shape, precision, K length, accumulator layout
+and number of issuing warps. A fitted intercept per small dot is not necessarily
+call overhead. Merging dots earns a model speedup only when changed instruction
+work or a matched measurement supports it. Do not force linear serialization
+by multiplying every dot cost by resident CTA count; measure sharing regimes.
+
+## Compose a model without double counting
+
+Name the unit for every coefficient: device, SM, CTA, warp or instruction;
+bytes/s versus bytes/ns; elapsed time versus service time. Use per-CTA traffic
+with per-CTA service rates. Dividing a whole-device result by all SMs does not
+measure an active SM's rate on an underfilled grid.
+
+Model issue/completion/consumer dependencies and shared service resources.
+Serialize exposed chain segments; permit overlap only where dependencies and
+resources allow it. A single `max(compute, memory, chain)` is a useful coarse
+estimate only within a validated regime, not a general pipeline composition
+rule. Do not charge an exposed load in both its path and a fitted residual
+chain term. Preserve prologue, steady-state and drain costs for short loops.
+
+Prefer measured tables or piecewise fits over shape/staging/concurrency classes.
+Keep dimensions finite for solver search and precompute nonlinear features
+where practical. Return an interval and coverage flag for each prediction;
+outside the calibrated domain return unknown, not a confident extrapolation.
+
+## Validate the search decision
+
+Hold out shapes and configuration families, including near residency and cache
+transitions, ragged tails and a different staging path. Report prediction error,
+rank agreement, recall of measured best/top candidates, and final selection
+regret under an equal GPU-trial budget. Validate complete kernels as well as
+isolated probes. Small average timing error can still discard the winner.
+
+Keep the best validated candidate, diverse near-optimal choices, boundary cases
+and an exploration sample of deferred candidates. A counterexample invalidates
+the affected fit/regime and can reopen previously deferred configurations.
+Track compile count, GPU trials and calibration cost to show whether pruning
+actually saves work.
+
+In the candidate/stage report, record the calibration artifact/hash, covered
+regime, access-site table, prediction interval, held-out residuals and reason
+for retain/defer/reject. Report `measured / ideal_reference` and
+`measured / predicted_median` with distinct labels; neither proves remaining
+headroom. Benchmark results override the fitted explanation.

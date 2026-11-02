@@ -52,6 +52,12 @@ Read [autotuning-guide.md](references/autotuning-guide.md) for a runnable
 decorator example, plain-factory programmatic tuning, fixed inputs, and cache
 controls. Keep search spaces bounded by available CPU/GPU resources.
 
+For many tiling choices, use [constraint pruning](../../tilelang-optimization-loop/references/constraint-pruning.md)
+to filter exact template constraints before compilation, then rank/defer using
+calibrated costs and a finite exploration budget. Preserve unknown and
+out-of-domain cases. Validate the selection policy's missed-best risk; a smaller
+candidate list alone does not establish better optimization.
+
 Start with inferred `T.Pipelined(..., num_stages=...)` scheduling. Read
 [pipeline-and-layouts.md](references/pipeline-and-layouts.md) only when explicit
 stage/order arrays, async copies, or layout choices are relevant. It explains

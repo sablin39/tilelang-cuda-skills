@@ -116,11 +116,22 @@ Check applicability to the named target; hardware support and TileFoundry
 backend support are separate questions. Before a kernel exists, treat these
 findings as design evidence to validate after implementation.
 
+KernelWiki hardware numbers are not calibration data. Verify device facts and
+use [matched microbenchmarks](../tilelang/profiling-tilelang-programs/references/microbenchmark-calibration.md)
+when rates will rank candidates. Keep specification, measured and inferred
+profiles distinct, with sources and applicable regimes.
+
 Use specification rates for a toy/ideal model when sufficient; label assumptions and expose logical
 bytes. Do not calibrate NVLink/NVSwitch or inter-node costs merely to establish
 an HIR design. Use measurements when a decision requires runtime performance.
 For detailed kernel latency diagnosis, see the loop's
 [cost model](../tilelang-optimization-loop/references/cost-model.md).
+
+For tensor/layout obligations and large tiling domains, use
+[constraint pruning](../tilelang-optimization-loop/references/constraint-pruning.md).
+Reuse integer relations and installed solver libraries; preserve proof,
+counterexample and unknown statuses. A calibrated estimate can defer a
+candidate but does not prove that its layout is illegal or runtime cannot win.
 
 The performance model prices the running mesh (`wave=active/physical`) and
 footprint share, with a per-CTA Little's-law cap over stated in-flight bytes

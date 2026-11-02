@@ -218,3 +218,10 @@ Source-only checks and helper tests:
 python3 scripts/skill_layout.py check skills
 python3 -m unittest discover -s tests -v
 ```
+
+For broad tiling searches, use the [calibrated cost model](skills/tilelang-optimization-loop/references/cost-model.md),
+[measurement recipes](skills/tilelang/profiling-tilelang-programs/references/microbenchmark-calibration.md)
+and [tensor constraint guidance](skills/tilelang-optimization-loop/references/constraint-pruning.md).
+They distinguish hardware reference data, measured service profiles, proven
+infeasibility and budget-based deferral. Z3, CP-SAT and ISL integration uses
+the task environment's existing libraries; no new default dependency is added.

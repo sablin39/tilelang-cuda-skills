@@ -20,6 +20,7 @@ device, versions, warmup, repetition settings, and cache policy.
 | Which phases execute inside a CUDA kernel? | IKET markers/ranges | Experimental warp-level events; requires the external IKET runtime |
 | Which kernel deserves deeper inspection? | `ncu` filtered to that kernel | Selected diagnostic sections; separate from baseline timing |
 | What work does this TIR express? | `tilelang.tools.Analyzer` | Static estimate with limited operator coverage |
+| Which rates can a cost model use for this kernel family? | [Matched microbenchmarks](references/microbenchmark-calibration.md) | Conditional latency/throughput data with coverage and uncertainty |
 
 Use [torch-profiling-tilelang-programs](../torch-profiling-tilelang-programs/SKILL.md)
 for a ready-to-run timeline and allocation workflow. `do_bench(backend="cupti")`

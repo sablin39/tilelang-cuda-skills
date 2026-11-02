@@ -138,6 +138,17 @@ Current pin: `3a6a4c0` (audited 2026-11-02). Run every step; skip nothing.
   and a nearby case that should not trigger the advice. Keep raw evidence local.
 - Current audit/probe logs and fixture backups are in
   `evals/suite-update-20261102`; capability-map docs retain the source history.
+- Calibration/solver audit (2026-11-02): repo issue #1 and its comments motivate
+  per-access staging, conditional microbenchmarks and held-out search recall.
+  The current pin already has per-Call in-flight estimates; the older claim
+  that staging facts are absent is stale. Existing stream/GEMM helpers measure
+  offered grid work and complete kernels, not achieved residency/isolated dots.
+  TileFoundry uses CP-SAT for finite predicates and first-feasible allocation,
+  and ISL for integer relations; installed TileLang supplies Z3 4.15.4.
+  CPU probes cover ownership collisions, finite-domain agreement and a separate
+  optimal packing example. No general tensor solver or calibration dataset is
+  claimed. Sources, probes and raw results live in
+  `evals/calibration-solver-20261102`.
 
 ## Updating skills from eval findings
 
@@ -231,9 +242,9 @@ survive a take-over:
   per-CTA Little's-law cap over the in-flight bytes the program states; the
   #239 billing and under-fill artifacts are fixed. It still does not measure
   achieved residency, dependent-chain latency, or pipeline overlap. Rank HIR
-  variants by logical traffic/FLOP diffs and roofline floors; occupancy-gated
-  questions need the measured two-bound recipe plus ncu/torch.profiler or IKET
-  warp-lifetime.
+  variants by logical traffic/FLOP diffs and ideal references; occupancy-gated
+  questions need matched calibration plus resource reports and ncu/torch.profiler
+  or IKET warp-lifetime. Empirical predictions are not proven runtime bounds.
 - **Commands are the contract.** Captured output in docs/READMEs/examples
   drifts between releases; rerun at the pinned checkout and read what it
   actually prints.
