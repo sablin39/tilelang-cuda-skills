@@ -1,17 +1,17 @@
-"""Time one barrier-separated GEMM on one SM at the shapes you will use.
+"""Sample a complete single-CTA load/GEMM/store kernel at selected shapes.
 
-The model in cost-model.md prices a stage's dots as a sum of per-shape costs,
-never as one merged call. This template measures those costs on the attached
-device; it embeds no coefficient. One CTA runs the whole GEMM, so the reported
-time is one dot's time.
+This is not isolated MMA latency or saturated SM throughput. The measurement
+includes loads, pipeline fill/drain, computation, stores and dispatch gaps
+between repeated ordinary launches. Use it as a matched composition probe;
+do not sum these times as per-instruction dot costs.
 
 Usage:
     python gemm_fit.py --shapes 64x64x64,128x128x64 --threads 256 --dtype float16
 
-Shapes are `MxNxK` and must be multiples of 16 with `K` divisible by
-`--block-k`. With two or more shapes the script also prints a least-squares
-line through them; use it only inside the measured shape range, and prefer the
-per-shape numbers when they do not fit a line.
+Shapes are `MxNxK`; M/N must be multiples of 16 and K divisible by
+`--block-k`. Output contains raw repeated-batch times, without assuming one
+linear fit transfers across shapes. Reused buffers have no explicit cache
+flush. Inspect the actual instruction family and resource usage before reuse.
 """
 
 import argparse
@@ -75,49 +75,45 @@ def main() -> None:
     parser.add_argument("--shapes", required=True, help="MxNxK[,MxNxK...]")
     parser.add_argument("--threads", type=int, default=256)
     parser.add_argument("--dtype", default="float16", choices=sorted(_TORCH_DTYPES))
-    parser.add_argument("--accum", default="float32")
+    parser.add_argument("--accum", default="float32", choices=("float32",))
     parser.add_argument("--block-k", type=int, default=32)
     parser.add_argument("--stages", type=int, default=2)
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--iters", type=int, default=50)
+    parser.add_argument("--batches", type=int, default=5)
     args = parser.parse_args()
+    if min(args.threads, args.block_k, args.iters, args.batches) <= 0 or min(args.stages, args.warmup) < 0:
+        parser.error("threads, block-k and iteration/batch counts must be positive; stages/warmup must be nonnegative")
+    try:
+        shapes = [_parse_shape(text) for text in args.shapes.split(",")]
+    except ValueError:
+        parser.error("--shapes must contain MxNxK triples of positive integers")
+    for M, N, K in shapes:
+        if min(M, N, K) <= 0 or M % 16 or N % 16 or K % args.block_k:
+            parser.error(f"{M}x{N}x{K}: positive M/N multiples of 16 and K multiple of block-k required")
 
     props = torch.cuda.get_device_properties(torch.cuda.current_device())
+    torch.backends.cuda.matmul.allow_tf32 = False
     torch_dtype = _TORCH_DTYPES[args.dtype]
-    print(f"# device={props.name} sms={props.multi_processor_count} "
-          f"dtype={args.dtype} threads={args.threads}")
-    print("# m,n,k,macs,us")
+    print(f"# sm={props.major}{props.minor} sms={props.multi_processor_count} "
+          f"dtype={args.dtype} accum={args.accum} threads={args.threads} block_k={args.block_k} stages={args.stages} "
+          f"scope=whole_kernel_repeated_launch warmup={args.warmup} iters={args.iters}")
+    print("# m,n,k,macs,batch,us")
 
-    points = []
-    for text in args.shapes.split(","):
-        M, N, K = _parse_shape(text)
-        if M % 16 or N % 16 or K % args.block_k:
-            raise SystemExit(f"{text}: M and N must be multiples of 16, K of block-k")
+    for M, N, K in shapes:
         kernel = _one_sm_gemm(M, N, K, args.threads, args.dtype, args.accum,
                               args.block_k, args.stages)
         a = torch.randn(M, K, device="cuda", dtype=torch_dtype)
         b = torch.randn(K, N, device="cuda", dtype=torch_dtype)
         c = torch.empty(M, N, device="cuda", dtype=torch.float32)
-        expected = (a.float() @ b.float()).to(torch_dtype)
+        expected = a.float() @ b.float()
         kernel(a, b, c)
-        if not torch.allclose(c, expected.float(), rtol=1e-2, atol=1e-1):
-            raise SystemExit(f"{text}: result does not match torch matmul; fix the shape before timing")
-        us = _time(lambda: kernel(a, b, c), args.warmup, args.iters)
+        if not torch.allclose(c, expected, rtol=1e-2, atol=1e-1):
+            raise SystemExit(f"{M}x{N}x{K}: result does not match torch matmul; fix the shape before timing")
         macs = M * N * K
-        points.append((macs, us))
-        print(f"{M},{N},{K},{macs},{us:.3f}")
-
-    if len(points) >= 2:
-        n = len(points)
-        sum_x = sum(x for x, _ in points)
-        sum_y = sum(y for _, y in points)
-        sum_xx = sum(x * x for x, _ in points)
-        sum_xy = sum(x * y for x, y in points)
-        denom = n * sum_xx - sum_x * sum_x
-        slope = 0.0 if denom == 0 else (n * sum_xy - sum_x * sum_y) / denom
-        intercept = (sum_y - slope * sum_x) / n
-        print(f"# local fit: us = {intercept:.3f} + {slope:.6f} * macs "
-              f"(in-range only; per-shape numbers win when they disagree)")
+        for batch in range(args.batches):
+            us = _time(lambda: kernel(a, b, c), args.warmup, args.iters)
+            print(f"{M},{N},{K},{macs},{batch},{us:.6f}")
 
 
 if __name__ == "__main__":
