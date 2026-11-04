@@ -19,6 +19,11 @@ gitlinks. Use `$TILEFOUNDRY_ROOT` if set; otherwise locate the suite from this
 symlinked skill's resolved directory or `$SUITE_CACHE` (default
 `~/.local/share/tilelang-cuda-skills`). For copied skills, retain the suite
 checkout or set `TILEFOUNDRY_ROOT` explicitly. Source is outside the skill copy.
+The suite installer installs core and bundled vendor packages into
+`$SUITE/.venv` by default. Use that interpreter, or pass `--python` to install
+into an existing task venv. Rerun installation after a pin update; checking out
+new source alone does not refresh package metadata. `--check-only` verifies the
+selected environment and its recorded installation pin without modifying it.
 
 ```bash
 SUITE=...  # suite checkout/cache
@@ -28,14 +33,14 @@ test "$(git -C "$TF" rev-parse HEAD)" = "$(git -C "$SUITE" rev-parse HEAD:extern
 git -C "$SUITE" submodule update --init --recursive -- external/TileFoundry
 
 # Python 3.12+; use the environment that will run the task.
-<env>/bin/python -m pip install -e "$TF" -e "$TF/targets/nvidia" cmake ninja
-# Add -e "$TF/targets/apple" when Apple support is needed.
-# Or: uv pip install --python <env>/bin/python -e "$TF" -e "$TF/targets/nvidia" cmake ninja
+TASK_ENV=/path/to/venv
+"$SUITE/scripts/install-skills.sh" --python "$TASK_ENV/bin/python" --scope project
+"$SUITE/scripts/install-skills.sh" --python "$TASK_ENV/bin/python" --scope project --check-only
 ```
 
 Core, NVIDIA and Apple are separate distributions. Core-only installation
 supplies CPU support. Released extras such as `tilefoundry[nvidia]` select the
-matching vendor version; for vendored source install both editable projects
+matching vendor version; for vendored source install core and vendor projects
 together. A `PYTHONPATH=.../src` override neither registers vendor entry points
 nor switches their code. Compare pins in separate environments. When migrating
 an old checkout, remove obsolete repository-root `tilefoundry.egg-info` before
@@ -47,8 +52,8 @@ to its `include` directory or initialize the vendored `third_party/cutlass`.
 Record the git SHA as well as versions; shallow metadata can mislabel releases.
 Probe the selected interpreter/CLI with `--version`, `target list` and
 `analyze --help`. Check dependency resolution before changing a torch/TileLang
-environment. TileFoundry is an explicit task dependency, not required for
-ordinary TileLang work.
+environment. Invoke TileFoundry when its independent analysis answers the task's
+design question; ordinary TileLang work can use the TileLang tools directly.
 
 ## Author against the installed interface
 

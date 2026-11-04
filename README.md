@@ -37,8 +37,10 @@ separate installation rather than a default suite dependency.
 ## Install the suite
 
 [scripts/install-skills.sh](scripts/install-skills.sh) installs the skills for
-Kimi Code, Claude Code, and Codex, verifies KernelWiki, and checks out the
-pinned TileFoundry source (with its CUTLASS dependency).
+Kimi Code, Claude Code, and Codex, verifies KernelWiki, and installs pinned
+TileFoundry core, NVIDIA and Apple packages with CUTLASS source and cmake/ninja.
+It creates/reuses a Python 3.12+ virtual environment at `<suite>/.venv` by
+default. Python 3.12+ must be available on the host.
 
 Quick install, no clone needed — the script fetches the suite into
 `~/.local/share/tilelang-cuda-skills` and symlinks from there:
@@ -51,7 +53,8 @@ Rerunning the same command updates the cached suite and every installed CLI at
 once, and moves TileFoundry to the commit the suite records. Override the
 source with `$SUITE_URL`, `$SUITE_REF`, and `$SUITE_CACHE`. The installer never
 updates TileFoundry to upstream main: it checks out the submodule gitlink and
-prints how to run or install that source.
+reinstalls matching editable packages. A failed cache update stops installation.
+When running from an existing checkout, update that checkout first.
 
 Global install from a checkout — canonical location `~/.agents/skills`,
 mirrored with symlinks into `~/.claude/skills` and `~/.codex/skills`:
@@ -66,6 +69,11 @@ Project-local install — run from the task project's root; installs into
 ```bash
 /path/to/suite/scripts/install-skills.sh --scope project --target all
 ```
+
+To use an existing virtual environment instead of `<suite>/.venv`, pass
+`--python /path/to/venv/bin/python` to installation and subsequent checks.
+The script bootstraps pip with `ensurepip` when needed, including in a venv
+created without pip. It does not install into the system Python.
 
 Skills are symlinked by default, so a `git pull` of this suite updates every
 installed CLI at once; pass `--copy` for a snapshot. The script repairs what it
@@ -103,32 +111,42 @@ their own documentation and helpers.
 
 ## TileFoundry
 
-TileFoundry ships with the suite as a pinned submodule at
-`external/TileFoundry`; the installer checks it out together with its
-`third_party/cutlass` dependency and prints the source path and install
-commands. Core and vendor targets are separate distributions; install the
-pinned core and NVIDIA package together in a Python 3.12+ task environment:
+TileFoundry ships as a pinned submodule at `external/TileFoundry`. The installer
+initializes its recursive dependencies even when the core is already at the
+pin but CUTLASS is missing. It installs core and both bundled vendor packages
+together, replaces older installations in the selected environment, and removes
+obsolete root `tilefoundry.egg-info` metadata from the old monolithic layout.
+
+Installation verifies matching package versions, editable source/import paths,
+CLI and target entry points, cmake/ninja executables, and a successful
+`tilefoundry target list` with CPU, CUDA and AMX registration. A receipt in the
+environment records the checked source pin. `--check-only` verifies that receipt
+and the installed metadata without fetching, installing, or importing target
+implementations. An environment installed manually has no receipt until the
+installer verifies it. These checks do not compile or execute a GPU kernel.
+
+For example, install and check a task environment:
 
 ```bash
 SUITE=...   # checkout/cache root
-TF="$SUITE/external/TileFoundry"
-<env>/bin/python -m pip install -e "$TF" -e "$TF/targets/nvidia" cmake ninja
-# For Apple support also install -e "$TF/targets/apple".
-<env>/bin/tilefoundry target list
+TASK_ENV=/path/to/venv
+"$SUITE/scripts/install-skills.sh" --python "$TASK_ENV/bin/python" --scope project
+"$SUITE/scripts/install-skills.sh" --python "$TASK_ENV/bin/python" --scope project --check-only
+"$TASK_ENV/bin/tilefoundry" target list
 ```
 
-Runtime headers ship with their owning packages. CUDA builds also need nvcc
-and CUTLASS. Core-only installation provides CPU support; a src-only `PYTHONPATH`
-override does not load a different vendor package. For old checkouts, remove
-obsolete root `tilefoundry.egg-info` before reinstalling the split projects.
+Runtime headers ship with their owning packages. CUDA execution also needs a
+compatible driver and host CUDA toolkit (`nvcc`); the installer does not install
+drivers or the CUDA toolkit. Activate the selected environment (including its
+`bin` directory on `PATH`) when using TileFoundry. A src-only `PYTHONPATH`
+override does not load a different vendor package.
 
-Verify the checkout is at the suite's pin; update by checking out the recorded
-gitlink, never by tracking upstream main:
+After updating a suite checkout, rerun its installer to update the pinned source
+and Python packages together. For the default environment:
 
 ```bash
-test "$(git -C "$SUITE/external/TileFoundry" rev-parse HEAD)" \
-   = "$(git -C "$SUITE" rev-parse HEAD:external/TileFoundry)" \
-  || git -C "$SUITE" submodule update --init --recursive -- external/TileFoundry
+"$SUITE/scripts/install-skills.sh" --scope global
+"$SUITE/scripts/install-skills.sh" --scope global --check-only
 ```
 
 Bump the pin deliberately and re-verify the workflow at each new commit — the
@@ -180,9 +198,9 @@ HTML memory timelines. Text layout inspection and JSON memory export work
 without it. The tensor-lifetime SVG renderer uses only the Python standard
 library. CUDA toolkit tools, Compute Sanitizer, Nsight Compute, and Nsight
 Systems are external installations, outside these pip requirements.
-TileFoundry's source ships with the suite (see [TileFoundry](#tilefoundry));
-installing it into a Python environment remains explicit, so follow its skill's
-compatibility check before adding its dependencies to an existing environment.
+The suite installer also installs TileFoundry into its default virtual
+environment or the environment selected by `--python` (see
+[TileFoundry](#tilefoundry)). Use that environment for its compatibility checks.
 
 ## CUDA skill
 
@@ -209,9 +227,10 @@ with reproducer, owning reference, affected and nearby cases, and an accept/reje
 decision. Raw task evidence stays outside delivered skills.
 
 `--check-only` is offline and read-only. It checks selected installation files,
-reachable links, missing/stale copies, KernelWiki structure and vendored
-pin/CUTLASS presence, returning nonzero on failure. It cannot establish that the
-active agent discovered those files; verify its advertised skill list.
+reachable links, missing/stale copies, KernelWiki structure, vendored
+pin/CUTLASS presence and the selected TileFoundry environment, returning nonzero
+on failure. It cannot establish that the active agent discovered those files;
+verify its advertised skill list.
 Source-only checks and helper tests:
 
 ```bash

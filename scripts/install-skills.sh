@@ -3,16 +3,17 @@
 #
 # Usage:
 #   scripts/install-skills.sh [--scope project|global] [--target kimi|claude|codex|all]
-#                             [--copy] [--check-only]
+#                             [--copy] [--check-only] [--python /path/to/venv/bin/python]
 #
 # Defaults: --scope project --target all, skills symlinked (single source of truth
 # in this repo; git pull updates every installed CLI at once). --copy snapshots
 # the files instead. Project scope installs into the current working directory;
 # run it from the task project's root.
 #
-# The script also ships TileFoundry: it checks out the pinned submodule and its
-# CUTLASS dependency at the suite's recorded gitlink and prints the commands
-# that run or install it. It never updates TileFoundry to upstream main.
+# The script installs the pinned TileFoundry core and bundled vendor packages,
+# with CUTLASS source and cmake/ninja. By default it creates/reuses .venv in the
+# suite; --python selects an existing virtual environment (Python 3.12+).
+# It never updates TileFoundry to upstream main. CUDA execution needs host nvcc.
 #
 # The script also runs standalone, fetched without cloning the suite:
 #   curl -fsSL https://raw.githubusercontent.com/sablin39/tilelang-cuda-skills/main/scripts/install-skills.sh | bash -s -- --scope global
@@ -52,19 +53,36 @@ scope=project
 target=all
 mode=symlink
 check_only=0
+tf_python=""
+
+usage() {
+  cat <<'EOF'
+Usage: install-skills.sh [--scope project|global] [--target kimi|claude|codex|all]
+                         [--copy] [--check-only] [--python /path/to/venv/bin/python]
+Installs skills and pinned TileFoundry into the suite's .venv by default.
+--python selects an existing Python 3.12+ virtual environment.
+--check-only validates files and that environment offline without changing them.
+EOF
+}
 
 while [ $# -gt 0 ]; do
+  case "$1" in
+    --scope|--target|--python)
+      [ $# -ge 2 ] && [ -n "$2" ] || { echo "ERROR: $1 requires a value" >&2; exit 2; } ;;
+  esac
   case "$1" in
     --scope)      scope="$2"; shift 2 ;;
     --target)     target="$2"; shift 2 ;;
     --copy)       mode=copy; shift ;;
     --check-only) check_only=1; shift ;;
-    -h|--help)    sed -n '2,27p' "$0"; exit 0 ;;
+    --python)    tf_python="$2"; shift 2 ;;
+    -h|--help)    usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
 case "$scope" in project|global) ;; *) echo "--scope must be project or global" >&2; exit 2 ;; esac
+case "$target" in kimi|claude|codex|all) ;; *) echo "--target must be kimi, claude, codex, or all" >&2; exit 2 ;; esac
 
 warn() { echo "WARNING: $*" >&2; }
 
@@ -80,15 +98,42 @@ if [ -z "$SUITE_ROOT" ] || [ ! -d "$SKILLS_SRC" ]; then
     echo "Updating cached suite at $SUITE_CACHE ..."
     git -C "$SUITE_CACHE" fetch --depth 1 origin "$SUITE_REF" \
       && git -C "$SUITE_CACHE" reset --hard FETCH_HEAD \
-      || warn "could not update $SUITE_CACHE; installing from its current state"
+      || { echo "ERROR: could not update $SUITE_CACHE; installation stopped" >&2; exit 1; }
   else
     echo "Fetching the skill suite into $SUITE_CACHE ..."
     git clone --depth 1 --branch "$SUITE_REF" "$SUITE_URL" "$SUITE_CACHE"
   fi
 fi
 
+TF="$SUITE_ROOT/external/TileFoundry"
+tf_env_default=0
+if [ -z "$tf_python" ]; then
+  tf_python="$SUITE_ROOT/.venv/bin/python"
+  tf_env_default=1
+fi
+# Keep the virtual environment's executable path (do not resolve its symlink).
+if [[ "$tf_python" != */* ]]; then
+  tf_python="$(command -v "$tf_python" || true)"
+fi
+if [ -n "$tf_python" ] && [[ "$tf_python" != /* ]]; then
+  tf_python="$PWD/$tf_python"
+fi
+tf_pin="$(git -C "$SUITE_ROOT" rev-parse HEAD:external/TileFoundry 2>/dev/null || true)"
+tf_source_ready() {
+  local modules
+  [ -n "$tf_pin" ] && [ -e "$TF/.git" ] &&
+    [ "$(git -C "$TF" rev-parse HEAD 2>/dev/null)" = "$tf_pin" ] &&
+    [ -f "$TF/src/tilefoundry/__init__.py" ] &&
+    [ -f "$TF/targets/nvidia/pyproject.toml" ] &&
+    [ -f "$TF/targets/apple/pyproject.toml" ] &&
+    [ -f "$TF/third_party/cutlass/include/cute/tensor.hpp" ] || return 1
+  modules="$(git -C "$TF" submodule status --recursive)" || return 1
+  ! printf '%s\n' "$modules" | grep -q '^[+-U]'
+}
+
 # Check-only is read-only and offline: do not initialize submodules, fetch the
-# cache, repair installations, or execute dependency query scripts.
+# cache, repair installations, or execute dependency query scripts. Inspect
+# package metadata/import locations without importing vendor implementations.
 if [ "$check_only" -eq 1 ]; then
   case "$target" in
     all) check_targets=(kimi claude codex) ;;
@@ -113,46 +158,50 @@ if [ "$check_only" -eq 1 ]; then
       check_status=1
     fi
   done
-  check_pin="$(git -C "$SUITE_ROOT" rev-parse HEAD:external/TileFoundry 2>/dev/null || true)"
-  check_head="$(git -C "$SUITE_ROOT/external/TileFoundry" rev-parse HEAD 2>/dev/null || true)"
-  if [ -z "$check_pin" ] || [ "$check_pin" != "$check_head" ] || \
-     [ ! -f "$SUITE_ROOT/external/TileFoundry/third_party/cutlass/include/cute/tensor.hpp" ]; then
+  if ! tf_source_ready; then
     echo "ERROR: TileFoundry or CUTLASS missing/not at suite pin" >&2
     check_status=1
   fi
-  echo "Checked files and links only; confirm skill discovery in the active agent separately."
+  if [ ! -x "$tf_python" ]; then
+    echo "ERROR: TileFoundry environment missing: $tf_python; run installation first" >&2
+    check_status=1
+  else
+    PYTHONDONTWRITEBYTECODE=1 "$tf_python" "$SUITE_ROOT/scripts/install_tilefoundry.py" \
+      --source "$TF" --pin "$tf_pin" --check-only || check_status=1
+  fi
+  echo "Checked files, links and TileFoundry environment; confirm active agent discovery separately."
   exit "$check_status"
 fi
 
-# --- TileFoundry: ship the pinned source -------------------------------------
+# --- TileFoundry: install the pinned source and packages ----------------------
 # The suite records TileFoundry as a submodule and the gitlink is the pin.
 # Check out exactly that commit, with its CUTLASS dependency, and report it.
 # Never `--remote`: the suite must not track upstream main.
-TF="$SUITE_ROOT/external/TileFoundry"
-tf_pin="$(git -C "$SUITE_ROOT" rev-parse HEAD:external/TileFoundry 2>/dev/null || true)"
-tf_head() {
-  [ -e "$TF/.git" ] || return 0
-  git -C "$TF" rev-parse HEAD 2>/dev/null || true
-}
-
 if [ -z "$tf_pin" ]; then
-  warn "no TileFoundry gitlink at $SUITE_ROOT; installing the skills without the pinned source"
-else
-  tf_now="$(tf_head)"
-  if [ "$tf_now" = "$tf_pin" ] && [ -f "$TF/src/tilefoundry/__init__.py" ]; then
-    echo "TileFoundry: $TF @ ${tf_pin:0:12} (pinned)"
-  elif [ "$check_only" -eq 1 ]; then
-    echo "TileFoundry: $TF — not at pin ${tf_pin:0:12} (have ${tf_now:-none})"
-  else
-    echo "Checking out TileFoundry at ${tf_pin:0:12} (with third_party/cutlass) ..."
-    git -C "$SUITE_ROOT" submodule update --init --recursive -- external/TileFoundry \
-      || { echo "ERROR: TileFoundry checkout failed" >&2; exit 1; }
-    tf_now="$(tf_head)"
-    [ "$tf_now" = "$tf_pin" ] \
-      || { echo "ERROR: TileFoundry is not at pin ${tf_pin:0:12} after update" >&2; exit 1; }
-    echo "TileFoundry: $TF @ ${tf_pin:0:12} (pinned)"
-  fi
+  echo "ERROR: no TileFoundry gitlink at $SUITE_ROOT" >&2; exit 1
 fi
+if ! tf_source_ready; then
+  echo "Checking out TileFoundry at ${tf_pin:0:12} (with third_party/cutlass) ..."
+  git -C "$SUITE_ROOT" submodule update --init --recursive -- external/TileFoundry \
+    || { echo "ERROR: TileFoundry checkout failed" >&2; exit 1; }
+  tf_source_ready || { echo "ERROR: TileFoundry/CUTLASS incomplete or not at pin" >&2; exit 1; }
+fi
+if [ ! -x "$tf_python" ] && [ "$tf_env_default" -eq 1 ]; then
+  bootstrap_python=""
+  for candidate in python3 python3.12 python3.13 python3.14; do
+    if command -v "$candidate" >/dev/null 2>&1 && \
+       "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 12))'; then
+      bootstrap_python="$candidate"; break
+    fi
+  done
+  if [ -z "$bootstrap_python" ]; then
+    echo "ERROR: install Python 3.12+ or pass --python /path/to/venv/bin/python" >&2; exit 1
+  fi
+  "$bootstrap_python" -m venv "$SUITE_ROOT/.venv"
+fi
+[ -x "$tf_python" ] || { echo "ERROR: Python executable not found: $tf_python" >&2; exit 1; }
+PYTHONDONTWRITEBYTECODE=1 "$tf_python" "$SUITE_ROOT/scripts/install_tilefoundry.py" \
+  --source "$TF" --pin "$tf_pin"
 
 # --- KernelWiki: locate, verify, repair --------------------------------------
 # KernelWiki is a standalone skill, cloned once at the canonical
@@ -327,14 +376,10 @@ Symlinked installs track this repo; rerun with --copy for a snapshot, and rerun
 after renaming or adding skills under skills/.
 EOF
 
-if [ -n "${tf_pin:-}" ]; then
-  cat <<EOF
+cat <<EOF
 
-TileFoundry: $TF @ ${tf_pin:0:12} (pinned).
-  Install core and NVIDIA support into a Python 3.12+ task environment:
-    <env>/bin/python -m pip install -e "$TF" -e "$TF/targets/nvidia" cmake ninja
-  For Apple support also install -e "$TF/targets/apple".
-  Run with that environment's tilefoundry command; do not use a src-only PYTHONPATH.
-  Runtime headers ship with the packages; CUDA builds also need CUTLASS and nvcc.
+TileFoundry installed and verified: $TF @ ${tf_pin:0:12}.
+  Python: $tf_python
+  Activate its environment or use its bin/tilefoundry command.
+  CUDA execution also requires a compatible driver and host CUDA toolkit (nvcc).
 EOF
-fi

@@ -62,10 +62,14 @@ copy.
   additionally need CUTLASS and nvcc. Initialize the submodule recursively.
   Old repository-root `tilefoundry.egg-info` must be removed before migrating
   to the split editable packages. Keep cmake/ninja on `PATH`.
-- `scripts/install-skills.sh` also ships TileFoundry: it checks out the pinned
-  submodule (recursive, including CUTLASS) in checkout and cache modes and
-  prints the source path and install commands. It never updates TileFoundry to
-  upstream main; the gitlink is the pin.
+- `scripts/install-skills.sh` installs TileFoundry: it checks out the pinned
+  submodule recursively, including CUTLASS, and installs core plus both vendor
+  packages and cmake/ninja into the suite's `.venv` or the venv selected by
+  `--python`. It verifies package origins/versions and CLI target registration;
+  its environment receipt binds the installation to the source pin.
+  `--check-only` reads that receipt and metadata without installing or importing
+  vendor implementations. Keep cache-update failures fatal and test incomplete
+  submodules at an otherwise matching pin. Never track upstream main.
 - Put `.venv/bin` on `PATH` when a test or CLI shells out to the build tools:
   `PATH=$PWD/.venv/bin:$PATH .venv/bin/python -m pytest ...`. Without it,
   `link_modules` fails with `'cmake' not on PATH` even though cmake is
