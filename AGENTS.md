@@ -32,6 +32,27 @@ copy.
    Keep unmerged work and branch-specific exclusions here or in local audit
    records; they do not belong in shipped skill instructions.
 
+## Branch names and change descriptions
+
+- Use a purpose prefix (`feat/`, `fix/`, `docs/`, or `chore/`) and lowercase,
+  hyphen-separated words. Name the affected area and concrete behavior being
+  added or corrected, so a reviewer can infer the
+  purpose without opening the chat or diff.
+- Prefer names such as `feat/skill-routing-and-calibration-guidance`,
+  `fix/installer-symlink-discovery`, or `docs/measured-cost-calibration`.
+  Avoid generic names such as `updates`, `improvements`, `work`, or a task
+  nickname. An issue number can supplement a descriptive name, not replace it.
+- Name the final scope. If the work changes direction, revise the branch name
+  and PR title before publishing again; do not retain names for discarded
+  experiments. Use a separate branch when the new work is independently
+  reviewable rather than accumulating unrelated changes under a broad name.
+- Before renaming a published branch, check its open PRs and automation
+  references. Preserve the commits, update affected references, and verify the
+  replacement branch before retiring the old name.
+- Make commit subjects and PR titles identify the same concrete change.
+  Explain the resulting behavior and relevant validation in the body; follow
+  the message-formatting guidance below.
+
 ## Environment facts (save yourself rediscovery)
 
 - CLI is `.venv/bin/tilefoundry`. Install the pinned core and NVIDIA package
