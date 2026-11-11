@@ -9,6 +9,7 @@ isolated hardware instructions or a comprehensive hardware specification.
 import argparse
 from copy import deepcopy
 import csv
+from contextlib import nullcontext
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -26,6 +27,71 @@ import calibration as cal
 
 CONTEXT_ENV = ("CUDA_MODULE_LOADING", "CUBLAS_WORKSPACE_CONFIG", "NVIDIA_TF32_OVERRIDE",
                "TORCH_CUDA_ARCH_LIST", "CUDA_MPS_ACTIVE_THREAD_PERCENTAGE", "CUDA_MPS_PIPE_DIRECTORY")
+
+
+class ModuleJournal:
+    """Single-writer immutable case receipts, separate from a sealed profile."""
+    def __init__(self, args, manifest, base):
+        self.root = args.root.resolve()
+        self.directory = (args.root / args.journal).resolve()
+        cal.require(not Path(args.journal).is_absolute() and self.directory.is_relative_to(self.root),
+                    "journal must stay inside the task root")
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.lock = (self.directory / "writer.lock").open("a+")
+        import fcntl
+        try:
+            fcntl.flock(self.lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.manifest = manifest
+            identity = cal.digest(manifest)
+            self.identity = identity
+            path = self.directory / "manifest.json"
+            if path.exists():
+                cal.require(getattr(args, "resume_journal", False), "existing journal requires --resume-journal")
+                cal.require(cal.load(path) == manifest, "journal source, case design or measurement context changed")
+                cal.require(getattr(args, "resume_anchor", None), "resume requires a fresh --resume-anchor device profile")
+                current = cal.validate(cal.load(cal.relative_file(args.root, args.resume_anchor)), args.root)
+                assessment = cal.reuse(base, current, args.max_anchor_drift, args.max_anchor_spread)
+                required = {row["id"] for row in base["measurements"] if row["status"] == "measured"}
+                eligible = {row["id"] for row in assessment["measurements"] if row["status"] == "reusable"}
+                cal.require(required and assessment["context_compatible"] and required <= eligible,
+                            "resume anchors are incomplete, noisy, drifted or incompatible")
+                self.anchor = cal.fingerprint(args.root, args.resume_anchor)
+            else:
+                cal.require(not getattr(args, "resume_journal", False), "no existing journal to resume")
+                cal.write_immutable(path, cal.canonical(manifest))
+                self.anchor = None
+        except BaseException:
+            self.lock.close()
+            raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.lock.close()
+
+    def case_path(self, record):
+        return self.directory / (cal.digest(record) + ".json")
+
+    def read(self, record):
+        path = self.case_path(record)
+        if not path.exists():
+            return None
+        value = cal.load(path)
+        cal.require(value["manifest_hash"] == self.identity and value["contract"] == record, "case receipt identity differs")
+        observed = value["record"]
+        cal.require(value["record_hash"] == cal.digest(observed),
+                    "case receipt content hash differs")
+        return deepcopy(observed)
+
+    def write(self, contract, record):
+        value = {"manifest_hash": self.identity, "contract": contract, "record": record,
+                 "record_hash": cal.digest(record)}
+        cal.write_immutable(self.case_path(contract), cal.canonical(value))
+
+    def references(self):
+        return [cal.fingerprint(self.root, str(path.relative_to(self.root)))
+                for path in sorted(self.directory.glob("*.json"))]
 
 
 def package_version(name):
@@ -238,24 +304,44 @@ def collect_module(torch, args, context, artifacts):
     preflight["cases"] = [dict(record, status="unavailable", reason="not run yet") for record, _ in cases]
     preflight["profile_id"] = cal.profile_id(preflight)
     cal.validate(preflight, args.root)
-    for record, setup in cases:
-        stage, prepared = "setup", None
-        try:
-            prepared = setup()
-            cal.require(callable(prepared.get("run")) and callable(prepared.get("check")), "setup needs run and check callables")
-            stage = "correctness"
-            cal.require(prepared["check"]() is True, "check must assert the contract and return True")
-            torch.cuda.synchronize(args.device)
-            record["correctness"] = "pass"
-            stage = "timing"
-            samples = time_calls(torch, prepared["run"], args)
-            record.update(status="measured", correctness="pass", samples_ns=samples)
-        except Exception as exc:
-            record.update(status="failed", failure_stage=stage, reason=f"{type(exc).__name__}: {exc}")
-        finally:
-            del prepared
-        profile["cases"].append(record)
-        print(f"{record['id']}: {record['status']}", file=sys.stderr, flush=True)
+    manifest = {"module": profile["module"], "regime": profile["regime"], "context": context,
+                "protocol": profile["protocol"], "base_profile": base_ref, "inputs": inputs,
+                "tools": artifacts, "cases": [record for record, _ in cases],
+                "resume_safe_cases": definition.get("resume_safe_cases") is True}
+    journal_context = ModuleJournal(args, manifest, base) if getattr(args, "journal", None) else nullcontext(None)
+    with journal_context as journal:
+        if journal and getattr(args, "resume_journal", False):
+            cal.require(manifest["resume_safe_cases"], "factory must declare independently reconstructible resume_safe_cases")
+        for record, setup in cases:
+            contract = deepcopy(record)
+            cached = journal.read(contract) if journal else None
+            if cached is not None:
+                profile["cases"].append(cached)
+                print(json.dumps({"kind": "case_reused", "id": record["id"], "status": cached["status"]}), file=sys.stderr, flush=True)
+                continue
+            stage, prepared = "setup", None
+            try:
+                prepared = setup()
+                cal.require(callable(prepared.get("run")) and callable(prepared.get("check")), "setup needs run and check callables")
+                stage = "correctness"
+                cal.require(prepared["check"]() is True, "check must assert the contract and return True")
+                torch.cuda.synchronize(args.device)
+                record["correctness"] = "pass"
+                stage = "timing"
+                samples = time_calls(torch, prepared["run"], args)
+                record.update(status="measured", correctness="pass", samples_ns=samples)
+            except Exception as exc:
+                record.update(status="failed", failure_stage=stage, reason=f"{type(exc).__name__}: {exc}")
+            finally:
+                del prepared
+            profile["cases"].append(record)
+            if journal:
+                journal.write(contract, record)
+            print(json.dumps({"kind": "case_completed", "id": record["id"], "status": record["status"]}), file=sys.stderr, flush=True)
+        if journal:
+            profile["journal"] = {"manifest_hash": journal.identity, "receipts": journal.references(),
+                                  "resume_anchor": journal.anchor}
+            profile["artifacts"] = list(artifacts) + journal.references() + ([journal.anchor] if journal.anchor else [])
     changed = []
     for item in inputs:
         try:
@@ -296,6 +382,11 @@ def main(argv=None):
     module.add_argument("--base", required=True, help="task-relative device profile")
     module.add_argument("--parent", help="task-relative previous module version")
     module.add_argument("--reason", required=True, help="initial calibration or the exact change triggering recalibration")
+    module.add_argument("--journal", help="task-relative directory for immutable completed-case receipts")
+    module.add_argument("--resume-journal", action="store_true", help="reuse completed cases after identity and anchor checks")
+    module.add_argument("--resume-anchor", help="fresh device profile with matching measured anchors")
+    module.add_argument("--max-anchor-drift", type=float, default=0.05)
+    module.add_argument("--max-anchor-spread", type=float, default=0.10)
     args = parser.parse_args(argv)
     try:
         args.root = args.root.resolve()
@@ -307,6 +398,9 @@ def main(argv=None):
             cal.require(all(x > 0 for x in args.copy_mib + args.gemm_size), "probe sizes must be positive")
             cal.require(len(set(args.probes)) == len(args.probes) and len(set(args.copy_mib)) == len(args.copy_mib)
                         and len(set(args.gemm_size)) == len(args.gemm_size), "duplicate probes/sizes")
+        else:
+            cal.require(not args.resume_journal or args.journal, "--resume-journal requires --journal")
+            cal.require(not args.resume_anchor or args.resume_journal, "--resume-anchor requires --resume-journal")
         import torch
         cal.require(torch.cuda.is_available(), "CUDA runtime unavailable")
         torch.cuda.set_device(args.device)

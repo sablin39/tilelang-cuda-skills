@@ -254,6 +254,59 @@ def calibration_cases(base):
             self.assertEqual(collector.telemetry("abc")["values"]["driver_version"], "600.0")
             self.assertEqual(collector.telemetry("MIG-abc")["status"], "unavailable")
 
+    def test_journal_requires_matching_design_and_fresh_anchors(self):
+        args = SimpleNamespace(root=self.root, journal="journal", resume_journal=False,
+                               resume_anchor=None, max_anchor_drift=.05, max_anchor_spread=.10)
+        manifest = {"cases": [{"id": "fit"}], "resume_safe_cases": True}
+        row = {"id": "fit", "status": "measured", "samples_ns": [1, 1, 1]}
+        with collector.ModuleJournal(args, manifest, self.device) as journal:
+            journal.write({"id": "fit"}, row)
+            with self.assertRaises(BlockingIOError):
+                collector.ModuleJournal(args, manifest, self.device)
+        args.resume_journal = True
+        with self.assertRaisesRegex(ValueError, "fresh"):
+            collector.ModuleJournal(args, manifest, self.device)
+        self.make_device("fresh.json")
+        args.resume_anchor = "fresh.json"
+        with collector.ModuleJournal(args, manifest, self.device) as journal:
+            self.assertEqual(journal.read({"id": "fit"}), row)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            collector.ModuleJournal(args, {"cases": [{"id": "changed"}]}, self.device)
+        self.make_device("drifted.json", samples=[50, 51, 52])
+        args.resume_anchor = "drifted.json"
+        with self.assertRaisesRegex(ValueError, "drifted"):
+            collector.ModuleJournal(args, manifest, self.device)
+
+    def test_interrupted_collection_reuses_only_complete_cases(self):
+        (self.root / "factory.py").write_text("""
+def calibration_cases(base):
+    def setup():
+        return {"run": lambda: None, "check": lambda: True}
+    return {"module": "resumable", "regime": {"test": True}, "resume_safe_cases": True,
+            "cases": [{"id": str(n), "group": "all", "partition": partition,
+                       "workload": {"n": n}, "configuration": {"a": 1},
+                       "predicted_ns": 1, "setup": setup}
+                      for n, partition in [(1, "fit"), (2, "holdout")]]}
+""")
+        args = SimpleNamespace(root=self.root, base="device.json", factory="factory.py", input=[], parent=None,
+                               reason="resume test", warmup=1, iterations=1, repeats=3, device=0,
+                               journal="journal", resume_journal=False, resume_anchor=None,
+                               max_anchor_drift=.05, max_anchor_spread=.10)
+        torch = SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda _: None))
+        with patch.object(collector, "time_calls", side_effect=[[1., 1., 1.], KeyboardInterrupt]):
+            with self.assertRaises(KeyboardInterrupt):
+                collector.collect_module(torch, args, self.device["context"], [])
+        self.make_device("fresh.json")
+        args.resume_journal, args.resume_anchor = True, "fresh.json"
+        with patch.object(collector, "time_calls", return_value=[2., 2., 2.]) as timing:
+            profile = collector.collect_module(torch, args, self.device["context"], [])
+        self.assertEqual(timing.call_count, 1)
+        self.assertEqual([r["samples_ns"][0] for r in profile["cases"]], [1., 2.])
+        profile["command"] = "resumed fixture"
+        sealed = cal.seal(profile, self.root / "resumed.json", self.root)
+        cal.validate(sealed, self.root)
+        self.assertEqual(len(sealed["cases"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

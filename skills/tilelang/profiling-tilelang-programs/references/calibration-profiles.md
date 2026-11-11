@@ -207,6 +207,34 @@ the adjacent `calibration.py` functions (`snapshot_input`, `fingerprint`,
 establish host/distributed end-to-end throughput. Keep prediction checking and
 the task's promotion benchmark separate.
 
+### Resume interrupted module collection
+
+For a long collection, add `--journal calibration/module-cases`. The collector
+seals each complete case separately and emits JSON progress records on stderr.
+An interrupted timing group is rerun in full; incomplete samples are not reused.
+
+Resuming requires the same factory, declared inputs, case order, predictions,
+fit/holdout partition, device context and timing protocol. The factory must
+declare `resume_safe_cases: True` only when every setup reconstructs its state
+and warmup/cache conditions independently of preceding cases. Preserve the
+original journal; use a new journal when changing the experiment.
+
+Collect fresh device anchors using the original protocol, then rerun the module
+command with a new output path and:
+
+```bash
+--journal calibration/module-cases --resume-journal \
+--resume-anchor calibration/device-fresh.json \
+--max-anchor-drift 0.05 --max-anchor-spread 0.10
+```
+
+These tolerances are examples; choose them for the decision. All previously
+measured base scopes must have eligible fresh anchors. Missing, noisy or drifted
+anchors prevent reuse. Completed failed cases remain explicit failures; a
+journal is not an automatic retry policy. Final sealing validates the complete
+profile and retains journal fingerprints. Assessment and end-to-end promotion
+remain separate checks.
+
 ## Evidence format and handoff
 
 Both profile kinds use `schema_version: 1`, a canonical-content `profile_id`,

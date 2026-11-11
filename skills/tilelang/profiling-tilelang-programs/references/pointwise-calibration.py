@@ -43,7 +43,7 @@ def calibration_cases(device_profile):
                           "workload": {"operation": "a*b+c", "elements": size, "dtype": "float32", "contiguous": True},
                           "configuration": {"implementation": implementation, "preallocated_output": True},
                           "predicted_ns": traffic / bandwidth * 1e9, "setup": setup})
-    return {"module": "pointwise-triad", "regime": {
+    return {"module": "pointwise-triad", "resume_safe_cases": True, "regime": {
         "implementation_families": ["torch.addcmul", "torch.mul+torch.add"],
         "elements": [2 ** 20, 2 ** 22], "dtype": "float32", "layout": "contiguous",
         "cache_policy": "repeated inputs; residency unverified", "allocation": "preallocated output and temporary",
