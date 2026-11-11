@@ -28,6 +28,7 @@ tasks and session/worker handoffs; link it from the existing candidate ledger.
 | Why is output wrong, or why did the intended lowering disappear? | [Debugging](../tilelang/debugging-tilelang-programs/SKILL.md) |
 | Are the gradients and saved-state contract correct? | [Forward/backward testing](../tilelang/testing-fwd-bwd-kernels/SKILL.md) |
 | Is the comparison reliable, and what does the profile show? | [Profiling](../tilelang/profiling-tilelang-programs/SKILL.md) |
+| Which device rates are reusable, and which module assumptions need measurement? | [Calibration profiles](../tilelang/profiling-tilelang-programs/references/calibration-profiles.md) |
 | Which bounded schedule change tests that finding? | [Optimization](../tilelang/optimizing-tilelang-programs/SKILL.md) |
 | How should the supported design be explained? | [Design documents](../tilelang/writing-tilelang-design-docs/SKILL.md) |
 
@@ -69,6 +70,13 @@ Record eager and compiled timings separately, outside compilation cost. Reuse
 existing artifacts when applicable. If compilation is unavailable or fails,
 record the missing evidence and use the validated eager path as described in
 that reference. Keep the mathematical oracle independent of the candidate.
+
+At the first performance pass, query the actual device and inspect reusable
+device profiles through [calibration](../tilelang/profiling-tilelang-programs/references/calibration-profiles.md).
+Before rates determine a ranking, check scope/context and fresh anchors or
+measure the few missing terms. Build the module's fit/holdout cases against that
+base; keep hardware evidence and implementation-specific corrections separate.
+Do not require a complete device benchmark suite before the first experiment.
 
 When a fusion, ownership or storage-placement decision needs an independent
 semantic/static model, use the [TileFoundry design workflow](../designing-with-tilefoundry/SKILL.md).
@@ -162,6 +170,11 @@ policy, and units consistent. Record variation; serialize measurements on a
 shared GPU and report interference. Use traces/NCU for focused diagnostic
 questions, then use the ordinary benchmark to select a winner.
 
+When the candidate changes fusion, staging/waits, instruction family, resource
+use or workload regime, refresh affected module calibration before trusting
+its ranking. Reuse the device base where its context and anchors still match.
+Preserve failed cases and parent/profile references in the same task record.
+
 If the observed lowering or timing contradicts the hypothesis, record that
 result and revise the explanation. Avoid repeating an unchanged failing
 command or expanding a search without new evidence.
@@ -184,6 +197,13 @@ When a model will explain a stage or rank a search, the
 and per-access staging with constants measured on the attached device. Record
 prediction intervals, held-out errors and deferred-candidate audits. It never
 replaces the benchmark or turns empirical assumptions into proofs.
+
+Run the [module assessment](../tilelang/profiling-tilelang-programs/references/calibration-profiles.md)
+on distinct held-out configurations, including within-workload alternatives
+when selecting candidates. Excess error, drift or unresolved ranking means
+recalibrate the affected regime or measure directly; reconsider candidates
+deferred by the invalidated fit. A source snapshot preserves the old evidence
+but does not qualify the changed implementation.
 
 Promote only when the candidate satisfies correctness and the recorded workload
 objective/regression limits. Compare with the current best and preserve the

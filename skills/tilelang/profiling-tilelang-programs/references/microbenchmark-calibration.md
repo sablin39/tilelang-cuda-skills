@@ -1,5 +1,11 @@
 # Microbenchmarks for static analysis and candidate selection
 
+Use the [device/module profile workflow](calibration-profiles.md) for executable
+collection, versioned artifacts, reuse checks and iterative module validation.
+Keep reusable device service measurements separate from implementation-specific
+fits. This reference supplies focused probes when the starter collectors do
+not cover a decision-driving term.
+
 Collect a small, reusable calibration profile for the actual kernel family and
 device. Start with the uncertain terms capable of changing the next decision;
 avoid measuring an entire architecture before the first experiment. Use the

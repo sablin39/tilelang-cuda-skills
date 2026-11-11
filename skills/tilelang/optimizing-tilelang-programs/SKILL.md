@@ -36,6 +36,13 @@ source to an expected code/resource change and measurable effect. Inspect the
 new lowering to check that the intended change materialized, then validate and
 remeasure; keep this evidence with the candidate.
 
+Use [device and module calibration](../profiling-tilelang-programs/references/calibration-profiles.md)
+when a numerical model guides this choice. Reuse matching device measurements;
+refresh module fits after changing fusion, staging/waits, instructions, resource
+use or workload regime. Validate the new fit on held-out configurations and
+reconsider candidates deferred by a contradicted prediction. Missing or noisy
+rates leave a ranking unresolved; direct measurements can still select a winner.
+
 ## Separate the algorithm from its schedule
 
 Expose tile sizes, loop ordering, and pipeline stages as configuration choices.

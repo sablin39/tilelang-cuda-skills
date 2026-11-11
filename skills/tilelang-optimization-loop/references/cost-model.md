@@ -10,6 +10,14 @@ to collect coefficients and [constraint pruning](constraint-pruning.md) to use
 them alongside exact tensor/layout constraints. No hardware rate from this
 document, KernelWiki or a previous task is a calibrated constant for this task.
 
+Use the [device/module profile helpers](../../tilelang/profiling-tilelang-programs/references/calibration-profiles.md)
+to preserve reusable service measurements and separate iterative module fits.
+They check identity, context/anchor drift, distinct fit/holdout configurations,
+residuals and within-workload selection regret. Refresh affected module terms
+when the implementation changes; preserve the base device evidence when valid.
+For TileFoundry reports, check [active-work rate coverage](../../designing-with-tilefoundry/references/calibrated-targets.md)
+before interpreting a partial ideal reference as a ranking.
+
 Two bundled starting probes are [stream_sweep.py](cost-model/stream_sweep.py)
 and [gemm_fit.py](cost-model/gemm_fit.py). Run them from their containing
 directory in the task environment:

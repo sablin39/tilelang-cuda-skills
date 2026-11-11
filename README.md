@@ -244,3 +244,11 @@ and [tensor constraint guidance](skills/tilelang-optimization-loop/references/co
 They distinguish hardware reference data, measured service profiles, proven
 infeasibility and budget-based deferral. Z3, CP-SAT and ISL integration uses
 the task environment's existing libraries; no new default dependency is added.
+
+The [calibration workflow](skills/tilelang/profiling-tilelang-programs/references/calibration-profiles.md)
+provides runnable CUDA device probes, reusable versioned profiles, drift checks,
+and iterative module calibration with preserved sources and held-out selection
+checks. A module factory can wrap the task's TileLang, CUDA or library callable.
+The standard-library checker works without a GPU; the starter collector uses
+the task's PyTorch/CUDA environment. [TileFoundry target coverage](skills/designing-with-tilefoundry/references/calibrated-targets.md)
+keeps missing rates and proxy facts explicit without changing the pinned source.

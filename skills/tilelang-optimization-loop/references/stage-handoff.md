@@ -92,3 +92,12 @@ selection audit as `model` check artifacts. Keep rejected versus deferred
 candidate classifications in the existing ledger. The report checker verifies
 file identity and references, not the soundness of solver encodings or timing
 bounds. A performance claim still needs the fixed benchmark gate.
+
+For [device/module calibration](../../tilelang/profiling-tilelang-programs/references/calibration-profiles.md),
+include the sealed device base, current module version, reuse/held-out assessment
+JSON and source snapshots among those artifacts. Record affected terms and the
+refresh reason in the check summary. Run the profile checker as well as this
+report checker; file identity alone does not establish current device context
+or held-out accuracy. Retain failed calibration evidence and unresolved scopes
+without assigning them an eligible rate. Use these existing `model` checks;
+no additional experiment ledger is needed.

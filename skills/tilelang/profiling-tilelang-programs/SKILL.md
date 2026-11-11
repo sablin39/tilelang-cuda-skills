@@ -1,6 +1,6 @@
 ---
 name: profiling-tilelang-programs
-description: Measure TileLang kernel and workflow performance, choose benchmark or timeline tools, and compare implementations fairly. Use for latency, throughput, profiler selection, and establishing optimization baselines on TileLang-generated code; use the cuda skill for hand-written CUDA C++ sources.
+description: Measure TileLang kernel and workflow performance, maintain reusable device profiles, calibrate module cost models, and compare implementations fairly. Use for latency, throughput, profiler selection, calibration/recalibration, and optimization baselines on TileLang-generated code; use the cuda skill for hand-written CUDA C++ sources.
 ---
 
 # Profiling TileLang Programs
@@ -21,6 +21,7 @@ device, versions, warmup, repetition settings, and cache policy.
 | Which kernel deserves deeper inspection? | `ncu` filtered to that kernel | Selected diagnostic sections; separate from baseline timing |
 | What work does this TIR express? | `tilelang.tools.Analyzer` | Static estimate with limited operator coverage |
 | Which rates can a cost model use for this kernel family? | [Matched microbenchmarks](references/microbenchmark-calibration.md) | Conditional latency/throughput data with coverage and uncertainty |
+| Which measurements can be reused, and what needs recalibration? | [Device and module profiles](references/calibration-profiles.md) | Versioned evidence, context/drift checks, held-out errors and selection regret |
 
 Use [torch-profiling-tilelang-programs](../torch-profiling-tilelang-programs/SKILL.md)
 for a ready-to-run timeline and allocation workflow. `do_bench(backend="cupti")`
@@ -43,6 +44,22 @@ IKET profiler is not installed by TileLang. If a required component is missing,
 identify the active Python environment and ask the user whether to install it
 there; do not modify the environment without their approval. PyTorch is needed
 only by examples or harnesses that import it.
+
+## Establish and reuse calibration
+
+On the first performance pass, query the actual device and check for matching
+device evidence. Before numerical rates rank candidates, follow
+[calibration profiles](references/calibration-profiles.md): measure the few
+uncertain device terms that matter, then calibrate the module against them.
+Shipped targets and KernelWiki facts do not establish attainable local rates.
+The bundled collectors and checker preserve sources/raw samples and distinguish
+missing data, drift and held-out validation failures.
+
+After fusion, staging, instruction, resource or workload-regime changes, refresh
+the affected module cases and preserve still-applicable device measurements.
+Attach both profile references and assessment results to the existing stage
+report. Pure semantic/API questions and explicitly ideal comparisons need no
+calibration run; final promotion still uses the task's correctness and benchmark.
 
 ## Benchmark a compiled factory-style kernel
 

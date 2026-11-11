@@ -177,6 +177,18 @@ Current pin: `3a6a4c0` (audited 2026-11-02). Run every step; skip nothing.
 
 ## Updating skills from eval findings
 
+Calibration workflow validation (2026-11-11): the profiling skill owns reusable
+device profiles and separate module fits, with source snapshots, raw samples,
+context/anchor checks and held-out assessment. Starter collectors cover library
+copy and dense GEMM; they are not a full hardware characterization. Target
+coverage checks preserve partial TileFoundry results without changing the pin
+or inserting unsupported L2 bandwidth facts. CPU regressions include concurrent
+snapshot publication and failed/stale evidence. SM103 device/module smoke runs,
+parent versions, target fixtures and exact tested source hashes are retained in
+`evals/calibration-workflow-20261111`. Short uncontrolled-clock probes showed
+drift and an inadequate bandwidth-only module fit; these are intentionally
+unqualified measurements, not reusable B300 performance constants.
+
 - Findings originate in `evals/` task workspaces; fold them into skills as
   *conclusions* (mechanism, command, current behavior) — never as paths.
 - Provenance (verification date, pin, upstream issue/PR numbers) lives in this

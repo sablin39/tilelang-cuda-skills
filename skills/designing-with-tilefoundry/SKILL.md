@@ -112,6 +112,13 @@ Record the target identity and reason in SM terms (`sm_90`, etc.). Same
 architecture does not imply identical unit counts, bandwidth or cache capacity.
 Inspect `target show IDENTITY` and instruction capabilities.
 
+Before using numerical reports to rank runtime choices, follow
+[target coverage and local calibration](references/calibrated-targets.md).
+Enumerate the rates needed by nonzero work, expose missing/proxy terms, and
+reference the applicable local device/module profiles. Roofline can skip an
+unavailable dtype rate: a partial report must not silently become a complete
+prediction. Keep empirical corrections outside shipped hardware facts.
+
 For hardware questions that affect the design—memory hierarchy, instruction
 contracts, async copies, synchronization or pipeline choices—use the
 [KernelWiki interface](../tilelang-optimization-loop/references/kernelwiki.md)
